@@ -6,12 +6,16 @@ import {
   joinVoiceChannel,
   VoiceConnection,
 } from '@discordjs/voice';
+import { ActivityType } from 'discord.js';
+import { SlashCommandContext } from 'necord';
 import { YtDlp } from 'ytdlp-nodejs';
 
 export class VoicePlayerService {
   private client: VoiceConnection;
   private player: AudioPlayer;
   private ytdlp: YtDlp;
+  private currentTrackName: string;
+
   constructor() {
     this.player = createAudioPlayer();
     this.ytdlp = new YtDlp();
@@ -23,6 +27,10 @@ export class VoicePlayerService {
     this.player.on('error', (error) => {
       console.error(`Error: ${error.message}`);
     });
+  }
+
+  public getCurrentTrackName(): string {
+    return this.currentTrackName;
   }
 
   public join(channelId, guildId, adapterCreator) {
@@ -50,29 +58,56 @@ export class VoicePlayerService {
     }
   }
 
-  public async playAudio(url: string): Promise<void> {
-    const fs = require('fs');
-    const cookieFilePath = './cookies.txt';
-    const cookies = fs.readFileSync(cookieFilePath, 'utf-8');
-    console.log(cookies);
-    return new Promise((resolve, reject) => {
+  private async setCurrentTrackName(url: string): Promise<void> {
+    this.currentTrackName = (await this.ytdlp.getInfoAsync(url)).title;
+  }
+
+  public async playAudio(
+    url: string,
+    [ctx]: SlashCommandContext,
+  ): Promise<void> {
+    await this.setCurrentTrackName(url);
+
+    ctx.client.user.setActivity({
+      name: `${this.currentTrackName}`,
+      state: 'Играет музыка',
+      type: ActivityType.Streaming,
+      url: url,
+    });
+
+    return new Promise(async (resolve, reject) => {
       try {
         const stream = this.ytdlp
           .stream(url)
           .cookies('./cookies.txt')
           .filter('audioonly')
           .getStream();
+
         const resource = createAudioResource(stream);
         this.player.play(resource);
 
         this.player.on(AudioPlayerStatus.Idle, () => {
-          console.log('Audio finished playing!');
+          this.currentTrackName = '';
+          ctx.client.user.setActivity();
           resolve();
         });
       } catch (error) {
         console.error(`Failed to play audio: ${error.message}`);
+        this.currentTrackName = '';
         reject();
       }
     });
+  }
+
+  public unpause(): boolean {
+    return this.player.unpause();
+  }
+
+  public pause() {
+    return this.player.pause();
+  }
+
+  public skipTrack() {
+    return this.player.stop();
   }
 }

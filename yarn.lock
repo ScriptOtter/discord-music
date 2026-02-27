@@ -1331,7 +1331,7 @@
   resolved "https://registry.yarnpkg.com/@snazzah/davey-win32-x64-msvc/-/davey-win32-x64-msvc-0.1.9.tgz#37d83494bb2da6722bb88b684487ae44c921bd5a"
   integrity sha512-eMnXbv4GoTngWYY538i/qHz2BS+RgSXFsvKltPzKqnqzPzhQZIY7TemEJn3D5yWGfW4qHve9u23rz93FQqnQMA==
 
-"@snazzah/davey@^0.1.9":
+"@snazzah/davey@^0.1.8":
   version "0.1.9"
   resolved "https://registry.yarnpkg.com/@snazzah/davey/-/davey-0.1.9.tgz#11f4d49d3b046e9cb2128e803f3ce0bd5fc6e0ab"
   integrity sha512-vNZk5y+IsxjwzTAXikvzz5pqMLb35YytC64nVF2MAFVhjpXu9ITOKUriZ0JG/llwzCAi56jb5x0cXDRIyE2A2A==

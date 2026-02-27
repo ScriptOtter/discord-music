@@ -51,9 +51,7 @@ export class PlayerCommandService {
   ) {
     if (!text) ctx.reply('Вы не указали номер трека в очереди');
     const track = this.playerService.musicStack[text];
-    this.playerService.musicStack = this.playerService.musicStack.filter(
-      (item) => item != track,
-    );
+    this.playerService.delTrack(track);
     return await ctx.reply({
       content: `${track} успешно убран из очереди`,
     });
@@ -107,20 +105,41 @@ export class PlayerCommandService {
   })
   public async playMusic(@Context() [ctx]: SlashCommandContext) {
     await ctx.reply({
-      content: `Включаю музыку!\n`,
+      content: `Включаю песню ...`,
     });
     for (let url of this.playerService.musicStack) {
-      console.log('Текущие треки', this.playerService.musicStack);
-      console.log('Играет ', url);
-      await this.voicePlayerService.playAudio(url);
-      console.log('Закончился ', url);
+      await this.voicePlayerService.playAudio(url, [ctx]);
+
       this.playerService.delTrack(url);
 
       if (this.playerService.musicStack.length === 0) {
-        console.log('Музыка закончилась');
         this.voicePlayerService.leave();
         return await ctx.editReply('Музыка закончилась');
       }
     }
+  }
+
+  @SlashCommand({ name: 'skip', description: 'Пропустить текущий трек' })
+  public async skipTrack(@Context() [ctx]: SlashCommandContext) {
+    const result = this.voicePlayerService.skipTrack();
+    if (!result) return ctx.reply(`Не удалось скипнуть трек`);
+    const track = this.voicePlayerService.getCurrentTrackName();
+    return ctx.reply(`Трек ${track} успешно пропущен `);
+  }
+
+  @SlashCommand({ name: 'pause', description: 'Поставить трек на паузу' })
+  public async pauseTrack(@Context() [ctx]: SlashCommandContext) {
+    const pause = this.voicePlayerService.pause();
+    if (!pause) return ctx.reply(`Не удалось поставить паузу`);
+    const track = this.voicePlayerService.getCurrentTrackName();
+    return ctx.reply(`${track} поставлен на паузу`);
+  }
+
+  @SlashCommand({ name: 'unpause', description: 'Снять трек с паузы' })
+  public async unpauseTrack(@Context() [ctx]: SlashCommandContext) {
+    const pause = this.voicePlayerService.unpause();
+    if (!pause) return ctx.reply(`Не удалось возобновить трек`);
+    const track = this.voicePlayerService.getCurrentTrackName();
+    ctx.reply(`${track} возобновлен`);
   }
 }
