@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PlayerService } from './player.service';
 import { PlayerCommandService } from './player.command';
-import { VoicePlayerService } from './player.init';
+import { PlayerService } from './player.service';
 
 @Module({
-  providers: [PlayerService, PlayerCommandService, VoicePlayerService],
+  providers: [PlayerService, PlayerCommandService],
 })
 export class PlayerModule {}

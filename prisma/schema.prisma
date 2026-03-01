@@ -1,0 +1,28 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Playlist {
+  id String @id @default(uuid())
+  owner String
+  name String
+  tracks Track[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+}
+
+model Track {
+  id String @id @default(uuid())
+  title String
+  url String
+  playlist Playlist @relation(references: [id], fields: [playlistId], onDelete: Cascade)
+  playlistId String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+}
