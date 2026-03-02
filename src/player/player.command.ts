@@ -1,33 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import {
   Button,
-  ButtonContext,
   Context,
-  Ctx,
-  MessageCommand,
-  Modal,
-  ModalContext,
   Options,
   SlashCommand,
   SlashCommandContext,
 } from 'necord';
 import { TextDto } from './dto/text.dto';
 import { PlayerService } from './player.service';
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  GuildMember,
-  ModalActionRowComponentBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  VoiceChannel,
-} from 'discord.js';
+import { GuildMember, VoiceChannel } from 'discord.js';
+import { PlayerMenuService } from './player-menu.service';
 
 @Injectable()
 export class PlayerCommandService {
-  constructor(private readonly playerService: PlayerService) {}
+  constructor(
+    private readonly playerService: PlayerService,
+    private readonly menuService: PlayerMenuService,
+  ) {}
 
   @SlashCommand({
     name: 'add',
@@ -37,8 +26,6 @@ export class PlayerCommandService {
     @Context() [ctx]: SlashCommandContext,
     @Options() { text }: TextDto,
   ) {
-    if (!text) ctx.reply('Вы не прикрепили ссылку на песню');
-    this.playerService.playlist.push(text);
     return await ctx.reply({
       content: `${text} успешно добавлен`,
     });
@@ -80,11 +67,11 @@ export class PlayerCommandService {
   })
   public async joinInVoiceChannel(@Context() [ctx]: SlashCommandContext) {
     const member = ctx.member as GuildMember;
-    if (!member) return await ctx.reply({ content: 'Вы не участник сервера' });
+    if (!member) return;
 
     const voiceChannel = member.voice.channel as VoiceChannel;
     if (!voiceChannel) {
-      return await ctx.reply({
+      return await ctx.editReply({
         content: 'Вы должны находиться в голосовом канале.',
       });
     }
@@ -93,14 +80,6 @@ export class PlayerCommandService {
       voiceChannel.guild.id,
       voiceChannel.guild.voiceAdapterCreator,
     );
-    if (this.playerService.playlist.length === 0) {
-      return await ctx.reply({
-        content: 'Плейлист пуст',
-      });
-    }
-    return await ctx.reply({
-      content: `Я присоединился к каналу ${voiceChannel.name}!`,
-    });
   }
 
   @SlashCommand({
@@ -115,16 +94,15 @@ export class PlayerCommandService {
     });
   }
 
+  @Button('play')
   @SlashCommand({
     name: 'play',
     description: 'Включить музыку',
   })
   public async playMusic(@Context() [ctx]: SlashCommandContext) {
     this.joinInVoiceChannel([ctx]);
-    for (let url of this.playerService.playlist) {
-      await this.playerService.playAudio(url, [ctx]);
-
-      this.playerService.deleteTrackFromPlaylist(url);
+    for (let data of this.playerService.playlist) {
+      await this.playerService.playAudio();
 
       if (this.playerService.playlist.length === 0) {
         this.playerService.leave();
@@ -139,74 +117,28 @@ export class PlayerCommandService {
     console.log(this.playerService.state);
     if (!result && this.playerService.state === 'Buffering')
       return ctx.reply(`Трек подгружается`);
-    const track = this.playerService.getCurrentTrackName();
+    const track = this.playerService.getCurrentTrack();
+    if (!track) return await ctx.reply('Не удалось пропустить трек');
     if (this.playerService.playlist.length === 1) {
       return await ctx.reply(`Треки в плейлисте закончились`);
     }
-    return ctx.reply(`Трек ${track} успешно пропущен `);
+    return ctx.reply(`Трек ${track.title} успешно пропущен `);
   }
-
+  @Button('pause')
   @SlashCommand({ name: 'pause', description: 'Поставить трек на паузу' })
   public async pauseTrack(@Context() [ctx]: SlashCommandContext) {
     const pause = this.playerService.pause();
     if (!pause) return ctx.reply(`Не удалось поставить паузу`);
-    const track = this.playerService.getCurrentTrackName();
+    const track = this.playerService.getCurrentTrack();
     return ctx.reply(`${track} поставлен на паузу`);
   }
-
+  @Button('unpause')
   @SlashCommand({ name: 'unpause', description: 'Снять трек с паузы' })
   public async unpauseTrack(@Context() [ctx]: SlashCommandContext) {
     const pause = this.playerService.unpause();
     if (!pause) return ctx.reply(`Не удалось возобновить трек`);
-    const track = this.playerService.getCurrentTrackName();
-    ctx.reply(`${track} возобновлен`);
-  }
-
-  @SlashCommand({ name: 'menu', description: 'menu' })
-  public createMenu(@Context() [ctx]: SlashCommandContext) {
-    // Создаем кнопку
-    const button = new ButtonBuilder()
-      .setCustomId('BUTTON')
-      .setLabel('LABEL')
-      .setStyle(ButtonStyle.Primary);
-
-    // Создаем ряд кнопок и добавляем кнопку в этот ряд
-    const row = new ActionRowBuilder().addComponents(button);
-
-    // Отправляем сообщение с текстом и кнопками
-    return ctx.reply({
-      content: '1234',
-      components: [row.toJSON()], // Здесь мы передаем ряд кнопок
-    });
-  }
-  @Button('BUTTON')
-  public async onButton(@Context() [interaction]: ButtonContext) {
-    // Создаем модальное окно
-    const modal = new ModalBuilder()
-      .setCustomId('myModal') // Уникальный идентификатор для модала
-      .setTitle('My Modal Title'); // Заголовок модала
-
-    // Создаем текстовое поле для ввода
-    const textInput = new TextInputBuilder()
-      .setCustomId('myTextInput') // Уникальный идентификатор для текстового поля
-      .setLabel('Enter something:') // Подсказка для текстового поля
-      .setStyle(TextInputStyle.Short); // Тип текстового поля (краткий)
-
-    // Создаем ряд для текстового поля
-    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
-      textInput,
-    );
-
-    // Добавляем ряд в модальное окно
-    modal.addComponents(row);
-
-    // Показываем модальное окно
-    await interaction.showModal(modal);
-  }
-
-  @Modal('pizza')
-  public onModal(@Ctx() [interaction]: ModalContext) {
-    console.log(interaction);
-    return;
+    const track = this.playerService.getCurrentTrack();
+    if (!track) return ctx.reply(`Не удалось возобновить трек`);
+    ctx.reply(`${track.title} возобновлен`);
   }
 }
