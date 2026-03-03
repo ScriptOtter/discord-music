@@ -1,14 +1,40 @@
-version: '3.8'
+version: '3.9'
 
 services:
-  app:
+  postgres:
+    container_name: postgres
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: discord
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - discord-music
+
+  discord-music:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - '4200:4200'
+    container_name: discord-music
+    restart: always
+
     environment:
       NODE_ENV: production
+    ports:
+      - '4200:4200'
     volumes:
       - .:/app
-    command: ['node', 'dist/main']
+
+    networks:
+      - discord-music
+
+volumes:
+  postgres_data:
+
+networks:
+  discord-music:

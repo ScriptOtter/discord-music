@@ -5,17 +5,20 @@ import {
   TrackCreateManyInput,
 } from 'prisma/generated/models';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { getYoutubeTitle } from 'src/shared/utils/youtube.utils';
+import { YoutubeService } from '../youtube/youtube.service';
 
 @Injectable()
 export class PlaylistService {
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly youtubeService: YoutubeService,
+  ) {}
 
   public async getPlaylists(): Promise<Playlist[]> {
     return await this.prismaService.playlist.findMany();
   }
 
-  public async getAllTracks(): Promise<Pick<Track, 'id' | 'title' | 'url'>[]> {
+  public async getAllTracks(): Promise<Pick<Track, 'title' | 'url'>[]> {
     return await this.prismaService.track.findMany({
       select: { id: true, title: true, url: true },
     });
@@ -40,16 +43,18 @@ export class PlaylistService {
   public async addTrackToPlaylist(
     playlistId: string,
     url: string,
-  ): Promise<boolean> {
+  ): Promise<Track | null> {
+    const title = await this.youtubeService.getTitle(url);
+    if (!title) return null;
     const data: TrackCreateManyInput = {
       playlistId,
       url,
-      title: await getYoutubeTitle(url),
+      title,
     };
-    return !!(await this.prismaService.track.create({ data }));
+    return await this.prismaService.track.create({ data });
   }
 
-  public async getPlaylistById(
+  public async getTracksFromPlaylistId(
     id: string,
   ): Promise<Pick<Track, 'title' | 'url'>[] | null> {
     const result = await this.prismaService.playlist.findUnique({
@@ -59,7 +64,16 @@ export class PlaylistService {
     if (!result) return null;
     return result.tracks;
   }
-
+  public async getPlaylistById(
+    id: string,
+  ): Promise<Pick<Playlist, 'id' | 'name'> | null> {
+    const playlist = await this.prismaService.playlist.findFirst({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!playlist) return null;
+    return playlist;
+  }
   public async deleteTrackFromPlaylist(
     playlistId: string,
     title: string,

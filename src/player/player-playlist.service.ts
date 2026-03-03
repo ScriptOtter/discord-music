@@ -3,12 +3,15 @@ import { Context, Options, SlashCommand, SlashCommandContext } from 'necord';
 import { PlaylistService } from 'src/modules/playlist/playlist.service';
 import { TextDto } from './dto/text.dto';
 import { PlayerService } from './player.service';
+import { AddTrackDto } from './dto/playlist.dto';
+import { PlayerStateService } from './player-state.service';
 
 @Injectable()
 export class PlayerPlaylistService {
   public constructor(
     private readonly playlistService: PlaylistService,
     private readonly playerService: PlayerService,
+    private readonly stateService: PlayerStateService,
   ) {}
   @SlashCommand({
     name: 'playlists',
@@ -25,7 +28,7 @@ export class PlayerPlaylistService {
     let separator = '====================';
     let content = ``;
     for (const playlist of playlists)
-      content += `ID: ${playlist.id}\nНазвание: ${playlist.name}\nСоздатель: ${playlist.owner}\n${separator}\n`;
+      content += `Название: **${playlist.name}**\nСоздатель: **${playlist.owner}**\nID: ${playlist.id}\n${separator}\n`;
     await ctx.reply({ content, ephemeral: true });
   }
 
@@ -44,6 +47,7 @@ export class PlayerPlaylistService {
     if (!playlist) {
       return await ctx.reply({
         content: `Не удалось создрать плейлист ${text}, попробуйте еще раз`,
+        ephemeral: true,
       });
     }
 
@@ -61,7 +65,7 @@ export class PlayerPlaylistService {
     @Context() [ctx]: SlashCommandContext,
     @Options() { text }: TextDto,
   ) {
-    const playlist = await this.playlistService.getPlaylistById(text);
+    const playlist = await this.playlistService.getTracksFromPlaylistId(text);
     if (!playlist)
       return await ctx.reply({
         content: `Плейлист не найден`,
@@ -78,5 +82,44 @@ export class PlayerPlaylistService {
       content: `Плейлист успешно загружен`,
       ephemeral: true,
     });
+  }
+
+  @SlashCommand({
+    name: 'playlist-add-track',
+    description: 'Добавить трек в плейлист',
+  })
+  public async addTrackToPlaylist(
+    @Context() [interaction]: SlashCommandContext,
+    @Options() { playlistId, url }: AddTrackDto,
+  ) {
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      const playlist = await this.playlistService.getPlaylistById(playlistId);
+      if (!playlist) {
+        return await interaction.editReply({
+          content: 'Плейлист не найден',
+        });
+      }
+
+      const track = await this.playlistService.addTrackToPlaylist(
+        playlistId,
+        url,
+      );
+      if (!track) {
+        return await interaction.editReply({
+          content: 'Не удалось добавить трек в плейлист',
+        });
+      }
+
+      return await interaction.editReply({
+        content: `Трек ${track.title} успешно добавлен в плейлист ${playlist.name}`,
+      });
+    } catch (error) {
+      console.error('Error adding track to playlist:', error);
+      return await interaction.editReply({
+        content: 'Произошла ошибка при добавлении трека',
+      });
+    }
   }
 }

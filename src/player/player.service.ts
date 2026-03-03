@@ -9,240 +9,121 @@ import {
 } from '@discordjs/voice';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ActivityType, Client } from 'discord.js';
-import { PlayerState } from 'src/shared/types/player-state.types';
+import { YoutubeService } from 'src/modules/youtube/youtube.service';
 import { PlaylistType } from 'src/shared/types/playlist.types';
-import { getYoutubeTitle } from 'src/shared/utils/youtube.utils';
-import { YtDlp } from 'ytdlp-nodejs';
+import { PlayerActivityService } from './player-activity.service';
+import { PlayerStateService } from './player-state.service';
+import { PlaylistService } from 'src/modules/playlist/playlist.service';
 
 @Injectable()
 export class PlayerService {
   private readonly logger = new Logger(PlayerService.name);
-  private discordClient: Client;
   private client: VoiceConnection | null = null;
   private player: AudioPlayer;
-  private ytdlp: YtDlp;
-  private currentTrack: PlaylistType | null = null;
-  public playlist: PlaylistType[] = [];
-  public state: PlayerState = 'Idle';
-  private isPlaying: boolean = false;
-  private currentIndex = 0;
-  private loop: boolean = false;
-  private shuffle: boolean = false;
-  constructor(private readonly configService: ConfigService) {
+  private menuUpdateCallback: (() => Promise<void>) | null = null;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly youtubeService: YoutubeService,
+    private readonly activityService: PlayerActivityService,
+    private readonly stateService: PlayerStateService,
+    private readonly playlistService: PlaylistService,
+  ) {
     this.player = createAudioPlayer();
-    this.ytdlp = new YtDlp();
 
     this.loadTestPlaylist();
     this.setupPlayerListeners();
   }
-  public setDiscordClient(client: Client): void {
-    this.discordClient = client;
-    this.logger.log('Discord client set successfully');
+
+  public setMenuUpdateCallback(callback: () => Promise<void>): void {
+    this.menuUpdateCallback = callback;
   }
 
+  private async triggerMenuUpdate(): Promise<void> {
+    if (this.menuUpdateCallback) {
+      try {
+        await this.menuUpdateCallback();
+      } catch (error) {
+        this.logger.debug(`Failed to update menu: ${error.message}`);
+      }
+    }
+  }
   public setPlaylist(playlist: PlaylistType[]): boolean {
-    this.clearPlaylist();
-    this.currentIndex = 0;
+    this.stateService.clearPlaylist();
+    this.stateService.currentIndex = 0;
 
-    this.playlist = [...playlist];
-    this.currentTrack = this.playlist[0];
+    this.stateService.setPlaylist(playlist);
     this.logger.log('Плейлист добавлен');
     return true;
   }
-  private loadTestPlaylist(): void {
-    if (this.configService.get<string>('TEST') === 'TEST') {
-      this.playlist = [
-        {
-          url: 'https://www.youtube.com/watch?v=bxplN6z8spc',
-          title: 'Первый трек',
-        },
-        {
-          url: 'https://www.youtube.com/watch?v=ARzH04uXu0Q',
-          title: 'Второй трек',
-        },
-        {
-          url: 'https://www.youtube.com/watch?v=TzE6o8BzNhI',
-          title: '3 трек',
-        },
-        {
-          url: 'https://www.youtube.com/watch?v=Nns2DwUM-Jg&pp=0gcJCb4KAYcqIYzv',
-          title: '4 трек',
-        },
-      ];
-    }
+
+  private async loadTestPlaylist(): Promise<void> {
+    const playlist = await this.playlistService.getAllTracks();
+    if (playlist) this.setPlaylist([...playlist]);
   }
 
   private setupPlayerListeners(): void {
     this.player.on(AudioPlayerStatus.Playing, () => {
-      this.state = 'Playing';
-      this.isPlaying = true;
-      this.logger.log(`Playing: ${this.currentTrack?.title}`);
+      this.stateService.setState('Playing');
+      this.stateService.setIsPlaying(true);
 
-      this.discordClient?.user?.setActivity({
-        name: this.currentTrack?.title || 'Unknown track',
-        state: '🎵 Играет музыка',
-        type: ActivityType.Streaming,
-        url: this.currentTrack?.url,
-      });
+      const currentTrack = this.stateService.getCurrentTrack();
+      if (currentTrack) {
+        this.logger.log(`Playing: ${currentTrack.title}`);
+        this.activityService.onPlaying(currentTrack.title, currentTrack.url);
+        this.triggerMenuUpdate();
+      }
     });
 
     this.player.on(AudioPlayerStatus.Buffering, () => {
-      this.state = 'Buffering';
+      this.stateService.setState('Buffering');
       this.logger.log('Buffering...');
-
-      // Можно установить статус буферизации
-      if (this.discordClient?.user) {
-        try {
-          this.discordClient.user.setActivity({
-            name: 'Буферизация...',
-            state: '⏳ Загрузка трека',
-            type: ActivityType.Streaming,
-          });
-        } catch (error) {
-          this.logger.error(`Failed to set activity: ${error.message}`);
-        }
-      }
+      this.activityService.onBuffering();
+      this.triggerMenuUpdate();
     });
 
     this.player.on(AudioPlayerStatus.Paused, () => {
-      this.state = 'Paused';
+      this.stateService.setState('Paused');
       this.logger.log('Paused');
-
-      // Устанавливаем статус паузы
-      if (this.discordClient?.user) {
-        try {
-          this.discordClient.user.setActivity({
-            name: 'На паузе',
-            state: '⏸ Музыка на паузе',
-            type: ActivityType.Streaming,
-          });
-        } catch (error) {
-          this.logger.error(`Failed to set activity: ${error.message}`);
-        }
-      }
+      this.activityService.onPaused();
+      this.triggerMenuUpdate();
     });
 
     this.player.on(AudioPlayerStatus.AutoPaused, () => {
-      this.state = 'AutoPaused';
+      this.stateService.setState('AutoPaused');
       this.logger.warn('AutoPaused');
-
-      // Статус автопаузы
-      if (this.discordClient?.user) {
-        try {
-          this.discordClient.user.setActivity({
-            name: 'Автопауза',
-            state: '⚠ Проблемы с соединением',
-            type: ActivityType.Streaming,
-          });
-        } catch (error) {
-          this.logger.error(`Failed to set activity: ${error.message}`);
-        }
-      }
+      this.activityService.onAutoPaused();
+      this.triggerMenuUpdate();
     });
 
     this.player.on(AudioPlayerStatus.Idle, () => {
-      this.state = 'Idle';
-      this.isPlaying = false;
+      this.stateService.setState('Idle');
+      this.stateService.setIsPlaying(false);
       this.logger.log('Finished playing');
+      this.triggerMenuUpdate();
 
-      if (this.discordClient?.user) {
-        try {
-          if (
-            this.playlist.length > 0 &&
-            this.currentIndex < this.playlist.length - 1
-          ) {
-            this.discordClient.user.setActivity({
-              name: 'Ожидание следующего трека',
-              state: '⏳ Скоро заиграет...',
-              type: ActivityType.Streaming,
-            });
-          } else {
-            this.discordClient.user.setActivity();
-          }
-        } catch (error) {
-          this.logger.error(`Failed to set activity: ${error.message}`);
-        }
+      const hasNextTrack = !!this.stateService.getNextTrack();
+      this.activityService.onIdle(hasNextTrack);
+
+      if (hasNextTrack) {
+        this.playNext();
       }
     });
 
     this.player.on('error', (error) => {
-      this.state = 'Idle';
-      this.isPlaying = false;
+      this.stateService.setState('Idle');
+      this.stateService.setIsPlaying(false);
       this.logger.error(`Player error: ${error.message}`);
-      this.logger.debug(`Player status: ${this.player.state.status}`);
-
-      // Устанавливаем статус ошибки
-      if (this.discordClient?.user) {
-        try {
-          this.discordClient.user.setActivity({
-            name: 'Ошибка воспроизведения',
-            state: '❌ Произошла ошибка',
-            type: ActivityType.Streaming,
-          });
-
-          // Сбрасываем через 5 секунд
-          setTimeout(() => {
-            if (this.discordClient?.user && this.state === 'Idle') {
-              this.discordClient.user.setActivity();
-            }
-          }, 5000);
-        } catch (activityError) {
-          this.logger.error(`Failed to set activity: ${activityError.message}`);
-        }
-      }
+      this.activityService.onError();
+      this.triggerMenuUpdate();
     });
   }
-  public deleteTrackFromPlaylist(title: string): void {
-    this.playlist = this.playlist.filter((item) => item.title !== title);
-    this.logger.log(`Removed track: ${title}`);
-  }
-
-  public getRemainingTracksCount(): number {
-    if (this.playlist.length === 0) return 0;
-    const index = this.playlist.findIndex(
-      (track) => track.url === this.currentTrack?.url,
-    );
-
-    return this.playlist.length - index;
-  }
-
-  public getCurrentTrack(): PlaylistType | null {
-    if (this.playlist.length === 0) return null;
-    if (!this.currentTrack) {
-      this.currentTrack = this.playlist[0];
+  private async playNext(): Promise<void> {
+    const nextTrack = this.stateService.getNextTrack();
+    if (nextTrack) {
+      await this.playTrack(nextTrack);
     }
-    return this.currentTrack;
   }
-
-  public getPrevioutsTrack(): PlaylistType | null {
-    if (this.currentTrack?.url === this.playlist[0].url) return null;
-
-    const index = this.playlist.findIndex(
-      (track) => track.url === this.currentTrack?.url,
-    );
-
-    if (index === -1 || index >= this.playlist.length) return null;
-
-    return this.playlist[index - 1];
-  }
-
-  public getNextTrack(): PlaylistType | null {
-    if (!this.currentTrack || this.playlist.length === 0) return null;
-
-    const index = this.playlist.findIndex(
-      (track) => track.url === this.currentTrack?.url,
-    );
-
-    if (index === -1 || index >= this.playlist.length - 1) return null;
-    return this.playlist[index + 1];
-  }
-
-  public setPreviousTrack(): boolean | null {
-    this.currentIndex -= 2;
-    return true;
-  }
-
   public join(
     channelId: string,
     guildId: string,
@@ -283,60 +164,64 @@ export class PlayerService {
   }
 
   public async playAudio(): Promise<boolean> {
-    if (this.playlist.length === 0) {
+    if (this.stateService.playlist.length === 0) {
       this.logger.warn('Cannot play: empty playlist');
       return false;
     }
 
-    if (this.isPlaying) {
+    if (this.stateService.isPlaying) {
       this.logger.warn('Already playing');
       return false;
     }
 
-    while (this.currentIndex < this.playlist.length) {
-      if (this.shuffle) {
-        const randomIndex = Math.floor(Math.random() * this.playlist.length);
-        const success = await this.playTrack(this.playlist[randomIndex]);
+    while (this.stateService.currentIndex < this.stateService.playlist.length) {
+      let index = this.stateService.currentIndex;
+      if (index < 0) {
+        this.stateService.currentIndex = 0;
+        continue;
+      }
+
+      if (this.stateService.shuffle) {
+        const randomIndex = Math.floor(
+          Math.random() * this.stateService.playlist.length,
+        );
+        const success = await this.playTrack(
+          this.stateService.playlist[randomIndex],
+        );
         if (!success) break;
       } else {
-        const track = this.playlist[this.currentIndex];
-
+        const track = this.stateService.playlist[index];
+        console.log(track, index);
         const success = await this.playTrack(track);
         if (!success) break;
-        !this.loop && this.currentIndex++;
+
+        if (!this.stateService.loop) {
+          this.stateService.incrementCurrentIndex();
+        }
       }
     }
     return true;
   }
-  catch(error) {
-    this.logger.error(`Playback failed: ${error.message}`);
-    return false;
-  }
 
   private async playTrack(track: PlaylistType): Promise<boolean> {
+    const { title, url } = track;
     return new Promise(async (resolve) => {
       try {
         this.logger.log(`Loading track: ${track.url}`);
 
-        const title = await getYoutubeTitle(track.url);
-        this.currentTrack = {
+        this.stateService.currentTrack = {
           title,
-          url: track.url,
+          url,
         };
-
-        const stream = this.ytdlp
-          .stream(track.url)
-          .cookies('./cookies.txt')
-          .filter('audioonly')
-          .getStream();
-
+        await this.triggerMenuUpdate();
+        const stream = this.youtubeService.createStream(track.url);
         const resource = createAudioResource(stream);
         this.player.play(resource);
 
         const onIdle = () => {
           this.player.removeListener(AudioPlayerStatus.Idle, onIdle);
-          this.state = 'Idle';
-          this.currentTrack = null;
+          this.stateService.state = 'Idle';
+          this.stateService.currentTrack = null;
           this.logger.log(`Finished: ${title}`);
           resolve(true);
         };
@@ -344,28 +229,28 @@ export class PlayerService {
         this.player.on(AudioPlayerStatus.Idle, onIdle);
       } catch (error) {
         this.logger.error(`Failed to play: ${error.message}`);
-        this.currentTrack = null;
+        this.stateService.currentTrack = null;
+        await this.triggerMenuUpdate();
+
         resolve(false);
       }
     });
   }
 
   public setLoop(): boolean {
-    this.loop = !this.loop;
-    return this.loop;
+    return this.stateService.toggleLoop();
   }
 
   public getLoop(): boolean {
-    return this.loop;
+    return this.stateService.getLoop();
   }
 
   public setShuffle(): boolean {
-    this.shuffle = !this.shuffle;
-    return this.shuffle;
+    return this.stateService.toggleShuffle();
   }
 
   public getShuffle(): boolean {
-    return this.shuffle;
+    return this.stateService.getShuffle();
   }
 
   public unpause(): boolean {
@@ -412,8 +297,7 @@ export class PlayerService {
   }
 
   public clearPlaylist(): void {
-    this.playlist = [];
-    this.currentTrack = null;
+    this.stateService.clearPlaylist();
     this.logger.log('Playlist cleared');
   }
 }

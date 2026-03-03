@@ -16,7 +16,6 @@ model Playlist {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @map("updated_at")
 
-  @@map("playlist")
 }
 
 model Track {

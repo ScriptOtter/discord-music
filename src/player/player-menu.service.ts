@@ -9,15 +9,46 @@ import {
   ComponentType,
   EmbedBuilder,
   ButtonInteraction,
+  VoiceChannel,
+  GuildMember,
 } from 'discord.js';
 import { PlayerState } from 'src/shared/types/player-state.types';
+import { PlayerStateService } from './player-state.service';
 
 @Injectable()
 export class PlayerMenuService {
   private readonly logger = new Logger(PlayerMenuService.name);
   private activeMenus: Map<string, Message> = new Map();
 
-  constructor(private readonly playerService: PlayerService) {}
+  constructor(
+    private readonly playerService: PlayerService,
+    private readonly stateService: PlayerStateService,
+  ) {
+    this.playerService.setMenuUpdateCallback(this.updateAllMenus.bind(this));
+  }
+
+  private async updateAllMenus(): Promise<void> {
+    const updatePromises = Array.from(this.activeMenus.entries()).map(
+      async ([channelId, message]) => {
+        try {
+          const embed = this.createPlayerEmbed();
+          const components = this.createPlayerControls();
+
+          await message.edit({
+            embeds: [embed],
+            components,
+          });
+        } catch (error) {
+          this.logger.debug(
+            `Failed to update menu in channel ${channelId}: ${error.message}`,
+          );
+          this.activeMenus.delete(channelId);
+        }
+      },
+    );
+
+    await Promise.allSettled(updatePromises);
+  }
 
   @SlashCommand({
     name: 'player',
@@ -47,53 +78,88 @@ export class PlayerMenuService {
     }
   }
 
-  private createPlayerEmbed(): EmbedBuilder {
-    const state = this.playerService.state;
-    const currentTrack = this.playerService.getCurrentTrack();
-    const nextTrack = this.playerService.getNextTrack();
-    const previousTrack = this.playerService.getPrevioutsTrack();
-    const remainingCount = this.playerService.getRemainingTracksCount();
+  private createPlayerEmbed = (): EmbedBuilder => {
+    const state = this.stateService.state;
+    const currentTrack = this.stateService.getCurrentTrack();
+    const nextTrack = this.stateService.getNextTrack();
+    const previousTrack = this.stateService.getPreviousTrack();
+    const remainingCount = this.stateService.getRemainingTracksCount();
+    const loopMod = !!this.stateService.getLoop();
+    const shuffleMod = !!this.stateService.getShuffle();
+    const isJoined = this.stateService.getIsJoined();
+    let footerText: string = '';
+    let counter: number = 2;
+    let currentIndex = this.stateService.currentIndex;
+    while (counter <= 5) {
+      const track = this.stateService.playlist[counter + currentIndex];
+      if (counter === 5) {
+        if (loopMod || shuffleMod) footerText += `⏳ Осталось треков: ♾️`;
+        else
+          footerText += `⏳ Осталось треков: ${remainingCount - counter > 0 ? remainingCount - counter : 0}`;
+        break;
+      }
+      if (track) {
+        if (counter === 2) footerText += `Далее\n`;
+        footerText += `· ${track.title.trim()}\n`;
+        counter++;
+      }
+    }
 
     const embed = new EmbedBuilder()
       .setColor(this.getStateColor(state))
       .setTitle('🎵 Afferists Player')
-      .setDescription(this.getStateDescription(state))
-      .addFields(
-        {
-          name: '💿 Сейчас играет',
-          value: currentTrack?.title || 'Ничего не играет',
-          inline: false,
-        },
-        {
-          name: '⏮ Предыдущий трек',
-          value: previousTrack?.title || 'Нет предыдущего трека',
-          inline: true,
-        },
-        {
-          name: '⏭ Следующий трек',
-          value: nextTrack?.title || 'Нет в очереди',
-          inline: true,
-        },
-        {
-          name: `🔄 Автоповтор: ${this.playerService.getLoop() ? '**Включен**' : '**Выключен**'}`,
-          value: '',
-          inline: false,
-        },
-        {
-          name: `🔀 Микс: ${this.playerService.getShuffle() ? '**Включен**' : '**Выключен**'}`,
-          value: '',
-          inline: false,
-        },
-      )
-      .setFooter({ text: `⏳ Осталось треков: ${remainingCount}` })
-      .setTimestamp();
+      .setDescription(
+        isJoined ? this.getStateDescription(state) : 'Добавьте бота в канал',
+      );
+    const filds = [
+      {
+        name: '💿 Сейчас играет',
+        value: currentTrack?.title || 'Ничего не играет',
+        inline: false,
+      },
+      {
+        name: '⏮ Предыдущий трек',
+        value: previousTrack?.title || 'Нет предыдущего трека',
+        inline: true,
+      },
+      {
+        name: '|',
+        value: '|',
+        inline: true,
+      },
+      {
+        name: '⏭ Следующий трек',
+        value: nextTrack?.title || 'Нет в очереди',
+        inline: true,
+      },
+      {
+        name: `🔄 Автоповтор: ${loopMod ? '**Включен**' : '**Выключен**'}`,
+        value: '',
+        inline: false,
+      },
+      {
+        name: `🔀 Микс: ${shuffleMod ? '**Включен**' : '**Выключен**'}`,
+        value: '',
+        inline: false,
+      },
+    ];
+    if (isJoined) {
+      embed
+        .addFields(filds)
 
-    if (currentTrack?.url) {
-      embed.setURL(currentTrack.url);
+        .setFooter({
+          text: footerText,
+        })
+        .setTimestamp();
+
+      if (currentTrack?.url) {
+        embed.setURL(currentTrack.url);
+      }
+      return embed;
     }
 
     return embed;
-  }
+  };
 
   private getStateColor(state: PlayerState): number {
     const colors = {
@@ -117,61 +183,84 @@ export class PlayerMenuService {
     return descriptions[state] || 'Статус неизвестен';
   }
 
-  private createPlayerControls(): ActionRowBuilder<ButtonBuilder>[] {
-    const state = this.playerService.state;
-    const hasCurrentTrack = !!this.playerService.getCurrentTrack();
-    const hasPreviousTrack = !!this.playerService.getPrevioutsTrack();
-    const hasNextTrack = !!this.playerService.getNextTrack();
-    const loopMod = !!this.playerService.getLoop();
-    const shuffleMod = !!this.playerService.getShuffle();
+  private createPlayerControls = (): ActionRowBuilder<ButtonBuilder>[] => {
+    const state = this.stateService.state;
+    const hasCurrentTrack = !!this.stateService.getCurrentTrack();
+    const hasPreviousTrack = !!this.stateService.getPreviousTrack();
+    const hasNextTrack = !!this.stateService.getNextTrack();
+    const loopMod = !!this.stateService.getLoop();
+    const shuffleMod = !!this.stateService.getShuffle();
+    const isJoined = this.stateService.getIsJoined();
+    const isBuffering = state === 'Buffering';
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId('player_join')
+        .setLabel('     🤖 Добавить бота в канал 🤖     ')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(isJoined),
+    );
 
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_previous')
         .setLabel('⏮ Previous')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasPreviousTrack || shuffleMod),
+        .setDisabled(
+          !hasPreviousTrack || shuffleMod || !isJoined || isBuffering,
+        ),
       new ButtonBuilder()
         .setCustomId('player_play')
         .setLabel('▶️ Play')
         .setStyle(ButtonStyle.Success)
-        .setDisabled(state === 'Playing' || !hasCurrentTrack),
+        .setDisabled(
+          state === 'Playing' || !hasCurrentTrack || !isJoined || isBuffering,
+        ),
       new ButtonBuilder()
         .setCustomId('player_pause')
         .setLabel('⏸ Pause')
         .setStyle(ButtonStyle.Primary)
-        .setDisabled(state !== 'Playing'),
+        .setDisabled(state !== 'Playing' || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_skip')
         .setLabel('⏭ Skip')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasNextTrack),
+        .setDisabled(!hasNextTrack || !isJoined || isBuffering),
     );
 
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_loop')
         .setLabel('🔄 Loop')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(shuffleMod),
+        .setStyle(loopMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setDisabled(shuffleMod || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_shuffle')
         .setLabel('🔀 Shuffle')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(loopMod),
+        .setStyle(shuffleMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setDisabled(loopMod || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_clear')
         .setLabel('🗑 Clear')
         .setStyle(ButtonStyle.Danger)
-        .setDisabled(this.playerService.playlist.length === 0),
+        .setDisabled(
+          this.stateService.playlist.length === 0 || !isJoined || isBuffering,
+        ),
       new ButtonBuilder()
         .setCustomId('player_refresh')
         .setLabel('🔄 Обновить')
         .setStyle(ButtonStyle.Secondary),
     );
 
-    return [row1, row2];
-  }
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId('player_leave')
+        .setLabel('     🤖 Выгнать бота 🤖     ')
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(state === 'Playing'),
+    );
+
+    return isJoined ? [row1, row2, row3] : [row, row1, row2];
+  };
 
   private setupCollector(message: Message) {
     const collector = message.createMessageComponentCollector({
@@ -231,6 +320,12 @@ export class PlayerMenuService {
 
     try {
       switch (action) {
+        case 'join':
+          await this.handleJoin(interaction);
+          break;
+        case 'leave':
+          await this.handleLeave(interaction);
+          break;
         case 'play':
           await this.handlePlay(interaction);
           break;
@@ -281,38 +376,54 @@ export class PlayerMenuService {
     }
   }
 
+  private async handleJoin(interaction: ButtonInteraction) {
+    const member = interaction.member as GuildMember;
+    if (!member) return;
+
+    const voiceChannel = member.voice.channel as VoiceChannel;
+    if (!voiceChannel) {
+      return;
+    }
+
+    this.playerService.join(
+      voiceChannel.id,
+      voiceChannel.guild.id,
+      voiceChannel.guild.voiceAdapterCreator,
+    );
+    this.stateService.toggleIsJoined();
+    await this.updateMenu(interaction);
+  }
+
+  private async handleLeave(interaction: ButtonInteraction) {
+    const member = interaction.member as GuildMember;
+    if (!member) return;
+
+    const voiceChannel = member.voice.channel as VoiceChannel;
+    if (!voiceChannel) {
+      return;
+    }
+
+    this.playerService.leave();
+    this.stateService.toggleIsJoined();
+    await this.updateMenu(interaction);
+  }
+
   private async handlePlay(interaction: ButtonInteraction) {
-    const hasCurrentTrack = this.playerService.getCurrentTrack();
+    const hasCurrentTrack = this.stateService.getCurrentTrack();
+    const state = this.stateService.state;
 
     if (!hasCurrentTrack) {
-      await interaction
-        .followUp({
-          content: '❌ Нет треков в очереди',
-          flags: 64,
-        })
-        .catch(() => {});
       return;
     }
 
     try {
-      if (this.playerService.state === 'Idle')
-        await this.playerService.playAudio();
-      if (
-        this.playerService.state === 'Paused' ||
-        this.playerService.state === 'AutoPaused'
-      )
+      if (state === 'Idle') await this.playerService.playAudio();
+      if (state === 'Paused' || state === 'AutoPaused')
         this.playerService.unpause();
-
       await this.updateMenu(interaction);
-
-      await interaction
-        .followUp({
-          content: '▶️ Воспроизведение возобновлено',
-          flags: 64,
-        })
-        .catch(() => {});
     } catch (error) {
       this.logger.error(`Play error: ${error.message}`);
+
       await interaction
         .followUp({
           content: `❌ Ошибка воспроизведения: ${error.message}`,
@@ -324,13 +435,7 @@ export class PlayerMenuService {
 
   private async handlePause(interaction: ButtonInteraction) {
     try {
-      if (this.playerService.state !== 'Playing') {
-        await interaction
-          .followUp({
-            content: '❌ Нет активного воспроизведения',
-            flags: 64,
-          })
-          .catch(() => {});
+      if (this.stateService.state !== 'Playing') {
         return;
       }
 
@@ -338,13 +443,6 @@ export class PlayerMenuService {
 
       if (result) {
         await this.updateMenu(interaction);
-
-        await interaction
-          .followUp({
-            content: '⏸ Воспроизведение приостановлено',
-            flags: 64,
-          })
-          .catch(() => {});
       } else {
         await interaction
           .followUp({
@@ -355,6 +453,7 @@ export class PlayerMenuService {
       }
     } catch (error) {
       this.logger.error(`Pause error: ${error.message}`);
+
       await interaction
         .followUp({
           content: '❌ Ошибка при паузе',
@@ -366,20 +465,13 @@ export class PlayerMenuService {
 
   private async handleSkip(interaction: ButtonInteraction) {
     try {
-      const skippedTrack = this.playerService.getCurrentTrack()?.title;
+      const skippedTrack = this.stateService.getCurrentTrack()?.title;
+      this.playerService.pause();
       const result = this.playerService.skipTrack();
 
       if (result) {
+        this.playerService.unpause();
         await this.updateMenu(interaction);
-
-        await interaction
-          .followUp({
-            content: skippedTrack
-              ? `⏭ Трек "${skippedTrack}" пропущен`
-              : '⏭ Трек пропущен',
-            flags: 64,
-          })
-          .catch(() => {});
       } else {
         await interaction
           .followUp({
@@ -390,6 +482,7 @@ export class PlayerMenuService {
       }
     } catch (error) {
       this.logger.error(`Skip error: ${error.message}`);
+
       await interaction
         .followUp({
           content: `❌ Ошибка: ${error.message}`,
@@ -399,32 +492,20 @@ export class PlayerMenuService {
     }
   }
 
-  // Новый обработчик для предыдущего трека
   private async handlePrevious(interaction: ButtonInteraction) {
     try {
-      const previousTrack = this.playerService.getPrevioutsTrack();
+      const previousTrack = this.stateService.getPreviousTrack();
 
       if (!previousTrack) {
-        await interaction
-          .followUp({
-            content: '❌ Нет предыдущего трека',
-            flags: 64,
-          })
-          .catch(() => {});
         return;
       }
 
       if (previousTrack) {
-        this.playerService.setPreviousTrack();
+        this.playerService.pause();
+        this.stateService.setPreviousTrack();
         this.playerService.skipTrack();
+        this.playerService.unpause();
         await this.updateMenu(interaction);
-
-        await interaction
-          .followUp({
-            content: `⏮ Воспроизводится предыдущий трек: "${previousTrack.title}"`,
-            flags: 64,
-          })
-          .catch(() => {});
       } else {
         await interaction
           .followUp({
@@ -446,19 +527,8 @@ export class PlayerMenuService {
 
   private async handleLoop(interaction: ButtonInteraction) {
     try {
-      const currentTrack = this.playerService.getCurrentTrack()?.title;
-      const result = this.playerService.setLoop();
-
+      this.stateService.toggleLoop();
       await this.updateMenu(interaction);
-
-      await interaction
-        .followUp({
-          content: result
-            ? `Трек "${currentTrack}" поставлен на повтор`
-            : 'Режим Loop отключен',
-          flags: 64,
-        })
-        .catch(() => {});
     } catch (error) {
       this.logger.error(`Loop error: ${error.message}`);
       await interaction
@@ -472,18 +542,11 @@ export class PlayerMenuService {
 
   private async handleShuffle(interaction: ButtonInteraction) {
     try {
-      const result = this.playerService.setShuffle();
-
+      this.stateService.toggleShuffle();
       await this.updateMenu(interaction);
-
-      await interaction
-        .followUp({
-          content: result ? `Включен микс режим` : 'Режим микс выключен',
-          flags: 64,
-        })
-        .catch(() => {});
     } catch (error) {
       this.logger.error(`Shuffle error: ${error.message}`);
+
       await interaction
         .followUp({
           content: `❌ Ошибка: ${error.message}`,
@@ -495,17 +558,11 @@ export class PlayerMenuService {
 
   private async handleClear(interaction: ButtonInteraction) {
     try {
-      this.playerService.clearPlaylist();
+      this.stateService.clearPlaylist();
       await this.updateMenu(interaction);
-
-      await interaction
-        .followUp({
-          content: '🗑 Плейлист очищен',
-          flags: 64,
-        })
-        .catch(() => {});
     } catch (error) {
       this.logger.error(`Clear error: ${error.message}`);
+
       await interaction
         .followUp({
           content: `❌ Ошибка: ${error.message}`,
