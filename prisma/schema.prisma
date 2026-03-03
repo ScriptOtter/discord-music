@@ -9,16 +9,18 @@ datasource db {
 }
 
 model Playlist {
-  id String @id @default(uuid())
+  id String @id @default(nanoid())
   owner String
   name String
   tracks Track[]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("playlist")
 }
 
 model Track {
-  id String @id @default(uuid())
+  id String @id @default(nanoid())
   title String
   url String
   playlist Playlist @relation(references: [id], fields: [playlistId], onDelete: Cascade)

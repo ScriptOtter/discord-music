@@ -20,7 +20,7 @@ const config: runtime.GetPrismaClientConfig = {
   "clientVersion": "7.4.2",
   "engineVersion": "94a226be1cf2967af2541cca5529f0f7ba866919",
   "activeProvider": "postgresql",
-  "inlineSchema": "generator client {\n  provider = \"prisma-client\"\n  output   = \"./generated\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\nmodel Playlist {\n  id        String   @id @default(uuid())\n  owner     String\n  name      String\n  tracks    Track[]\n  createdAt DateTime @default(now()) @map(\"created_at\")\n  updatedAt DateTime @default(now()) @map(\"updated_at\")\n}\n\nmodel Track {\n  id         String   @id @default(uuid())\n  title      String\n  url        String\n  playlist   Playlist @relation(references: [id], fields: [playlistId], onDelete: Cascade)\n  playlistId String\n  createdAt  DateTime @default(now()) @map(\"created_at\")\n  updatedAt  DateTime @default(now()) @map(\"updated_at\")\n}\n",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client\"\n  output   = \"./generated\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\nmodel Playlist {\n  id        String   @id @default(nanoid())\n  owner     String\n  name      String\n  tracks    Track[]\n  createdAt DateTime @default(now()) @map(\"created_at\")\n  updatedAt DateTime @default(now()) @map(\"updated_at\")\n}\n\nmodel Track {\n  id         String   @id @default(nanoid())\n  title      String\n  url        String\n  playlist   Playlist @relation(references: [id], fields: [playlistId], onDelete: Cascade)\n  playlistId String\n  createdAt  DateTime @default(now()) @map(\"created_at\")\n  updatedAt  DateTime @default(now()) @map(\"updated_at\")\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},

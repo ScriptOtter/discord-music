@@ -27,7 +27,8 @@ export class PlayerService {
   public state: PlayerState = 'Idle';
   private isPlaying: boolean = false;
   private currentIndex = 0;
-
+  private loop: boolean = false;
+  private shuffle: boolean = false;
   constructor(private readonly configService: ConfigService) {
     this.player = createAudioPlayer();
     this.ytdlp = new YtDlp();
@@ -38,6 +39,16 @@ export class PlayerService {
   public setDiscordClient(client: Client): void {
     this.discordClient = client;
     this.logger.log('Discord client set successfully');
+  }
+
+  public setPlaylist(playlist: PlaylistType[]): boolean {
+    this.clearPlaylist();
+    this.currentIndex = 0;
+
+    this.playlist = [...playlist];
+    this.currentTrack = this.playlist[0];
+    this.logger.log('Плейлист добавлен');
+    return true;
   }
   private loadTestPlaylist(): void {
     if (this.configService.get<string>('TEST') === 'TEST') {
@@ -135,10 +146,8 @@ export class PlayerService {
       this.isPlaying = false;
       this.logger.log('Finished playing');
 
-      // Сбрасываем activity или устанавливаем статус ожидания
       if (this.discordClient?.user) {
         try {
-          // Проверяем, есть ли еще треки в плейлисте
           if (
             this.playlist.length > 0 &&
             this.currentIndex < this.playlist.length - 1
@@ -149,7 +158,6 @@ export class PlayerService {
               type: ActivityType.Streaming,
             });
           } else {
-            // Если плейлист пуст или закончился, сбрасываем активность
             this.discordClient.user.setActivity();
           }
         } catch (error) {
@@ -285,15 +293,18 @@ export class PlayerService {
       return false;
     }
 
-    for (
-      this.currentIndex;
-      this.currentIndex < this.playlist.length;
-      this.currentIndex++
-    ) {
-      const track = this.playlist[this.currentIndex];
+    while (this.currentIndex < this.playlist.length) {
+      if (this.shuffle) {
+        const randomIndex = Math.floor(Math.random() * this.playlist.length);
+        const success = await this.playTrack(this.playlist[randomIndex]);
+        if (!success) break;
+      } else {
+        const track = this.playlist[this.currentIndex];
 
-      const success = await this.playTrack(track);
-      if (!success) break;
+        const success = await this.playTrack(track);
+        if (!success) break;
+        !this.loop && this.currentIndex++;
+      }
     }
     return true;
   }
@@ -337,6 +348,24 @@ export class PlayerService {
         resolve(false);
       }
     });
+  }
+
+  public setLoop(): boolean {
+    this.loop = !this.loop;
+    return this.loop;
+  }
+
+  public getLoop(): boolean {
+    return this.loop;
+  }
+
+  public setShuffle(): boolean {
+    this.shuffle = !this.shuffle;
+    return this.shuffle;
+  }
+
+  public getShuffle(): boolean {
+    return this.shuffle;
   }
 
   public unpause(): boolean {

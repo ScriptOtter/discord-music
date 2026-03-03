@@ -9,7 +9,6 @@ import {
   ComponentType,
   EmbedBuilder,
   ButtonInteraction,
-  ActivityType,
 } from 'discord.js';
 import { PlayerState } from 'src/shared/types/player-state.types';
 
@@ -57,7 +56,7 @@ export class PlayerMenuService {
 
     const embed = new EmbedBuilder()
       .setColor(this.getStateColor(state))
-      .setTitle('🎵 Музыкальный плеер')
+      .setTitle('🎵 Afferists Player')
       .setDescription(this.getStateDescription(state))
       .addFields(
         {
@@ -74,6 +73,16 @@ export class PlayerMenuService {
           name: '⏭ Следующий трек',
           value: nextTrack?.title || 'Нет в очереди',
           inline: true,
+        },
+        {
+          name: `🔄 Автоповтор: ${this.playerService.getLoop() ? '**Включен**' : '**Выключен**'}`,
+          value: '',
+          inline: false,
+        },
+        {
+          name: `🔀 Микс: ${this.playerService.getShuffle() ? '**Включен**' : '**Выключен**'}`,
+          value: '',
+          inline: false,
         },
       )
       .setFooter({ text: `⏳ Осталось треков: ${remainingCount}` })
@@ -113,14 +122,15 @@ export class PlayerMenuService {
     const hasCurrentTrack = !!this.playerService.getCurrentTrack();
     const hasPreviousTrack = !!this.playerService.getPrevioutsTrack();
     const hasNextTrack = !!this.playerService.getNextTrack();
+    const loopMod = !!this.playerService.getLoop();
+    const shuffleMod = !!this.playerService.getShuffle();
 
-    // Первый ряд - основные кнопки управления
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_previous')
         .setLabel('⏮ Previous')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasPreviousTrack),
+        .setDisabled(!hasPreviousTrack || shuffleMod),
       new ButtonBuilder()
         .setCustomId('player_play')
         .setLabel('▶️ Play')
@@ -138,16 +148,17 @@ export class PlayerMenuService {
         .setDisabled(!hasNextTrack),
     );
 
-    // Второй ряд - дополнительные функции
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_loop')
         .setLabel('🔄 Loop')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(shuffleMod),
       new ButtonBuilder()
         .setCustomId('player_shuffle')
         .setLabel('🔀 Shuffle')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(loopMod),
       new ButtonBuilder()
         .setCustomId('player_clear')
         .setLabel('🗑 Clear')
@@ -434,21 +445,52 @@ export class PlayerMenuService {
   }
 
   private async handleLoop(interaction: ButtonInteraction) {
-    await interaction
-      .followUp({
-        content: '🔄 Режим повтора пока не реализован',
-        flags: 64,
-      })
-      .catch(() => {});
+    try {
+      const currentTrack = this.playerService.getCurrentTrack()?.title;
+      const result = this.playerService.setLoop();
+
+      await this.updateMenu(interaction);
+
+      await interaction
+        .followUp({
+          content: result
+            ? `Трек "${currentTrack}" поставлен на повтор`
+            : 'Режим Loop отключен',
+          flags: 64,
+        })
+        .catch(() => {});
+    } catch (error) {
+      this.logger.error(`Loop error: ${error.message}`);
+      await interaction
+        .followUp({
+          content: `❌ Ошибка: ${error.message}`,
+          flags: 64,
+        })
+        .catch(() => {});
+    }
   }
 
   private async handleShuffle(interaction: ButtonInteraction) {
-    await interaction
-      .followUp({
-        content: '🔀 Перемешивание пока не реализовано',
-        flags: 64,
-      })
-      .catch(() => {});
+    try {
+      const result = this.playerService.setShuffle();
+
+      await this.updateMenu(interaction);
+
+      await interaction
+        .followUp({
+          content: result ? `Включен микс режим` : 'Режим микс выключен',
+          flags: 64,
+        })
+        .catch(() => {});
+    } catch (error) {
+      this.logger.error(`Shuffle error: ${error.message}`);
+      await interaction
+        .followUp({
+          content: `❌ Ошибка: ${error.message}`,
+          flags: 64,
+        })
+        .catch(() => {});
+    }
   }
 
   private async handleClear(interaction: ButtonInteraction) {
@@ -495,25 +537,6 @@ export class PlayerMenuService {
       });
     } catch (error) {
       this.logger.error(`Failed to update menu: ${error.message}`);
-    }
-  }
-
-  public async updateAllMenus() {
-    for (const [channelId, message] of this.activeMenus) {
-      try {
-        const embed = this.createPlayerEmbed();
-        const components = this.createPlayerControls();
-
-        await message.edit({
-          embeds: [embed],
-          components,
-        });
-      } catch (error) {
-        this.logger.error(
-          `Failed to update menu in ${channelId}: ${error.message}`,
-        );
-        this.activeMenus.delete(channelId);
-      }
     }
   }
 }

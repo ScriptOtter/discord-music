@@ -46,22 +46,6 @@ export class PlayerCommandService {
   }
 
   @SlashCommand({
-    name: 'remove',
-    description: 'Удалить песню из очереди',
-  })
-  public async delTrack(
-    @Context() [ctx]: SlashCommandContext,
-    @Options() { text }: TextDto,
-  ) {
-    if (!text) ctx.reply('Вы не указали номер трека в очереди');
-    const track = this.playerService.playlist[text];
-    this.playerService.deleteTrackFromPlaylist(track);
-    return await ctx.reply({
-      content: `${track} успешно убран из очереди`,
-    });
-  }
-
-  @SlashCommand({
     name: 'join',
     description: 'Подключить/перекинуть бота в голосовой канал',
   })
@@ -80,35 +64,6 @@ export class PlayerCommandService {
       voiceChannel.guild.id,
       voiceChannel.guild.voiceAdapterCreator,
     );
-  }
-
-  @SlashCommand({
-    name: 'quit',
-    description: 'Удалить бота из голосового канала',
-  })
-  public async quitVoiceChannel(@Context() [ctx]: SlashCommandContext) {
-    this.playerService.leave();
-
-    return await ctx.reply({
-      content: `Я отключился!`,
-    });
-  }
-
-  @Button('play')
-  @SlashCommand({
-    name: 'play',
-    description: 'Включить музыку',
-  })
-  public async playMusic(@Context() [ctx]: SlashCommandContext) {
-    this.joinInVoiceChannel([ctx]);
-    for (let data of this.playerService.playlist) {
-      await this.playerService.playAudio();
-
-      if (this.playerService.playlist.length === 0) {
-        this.playerService.leave();
-        return await ctx.editReply('Музыка закончилась');
-      }
-    }
   }
 
   @SlashCommand({ name: 'skip', description: 'Пропустить текущий трек' })
