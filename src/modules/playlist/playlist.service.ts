@@ -6,6 +6,7 @@ import {
 } from 'prisma/generated/models';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { YoutubeService } from '../youtube/youtube.service';
+import { PlaylistWithTracks } from 'src/shared/types/playlist.types';
 
 @Injectable()
 export class PlaylistService {
@@ -18,7 +19,7 @@ export class PlaylistService {
     return await this.prismaService.playlist.findMany();
   }
 
-  public async getAllTracks(): Promise<Pick<Track, 'title' | 'url'>[]> {
+  public async getAllTracks(): Promise<Pick<Track, 'id' | 'title' | 'url'>[]> {
     return await this.prismaService.track.findMany({
       select: { id: true, title: true, url: true },
     });
@@ -27,15 +28,12 @@ export class PlaylistService {
   public async createPlaylist(
     data: PlaylistCreateInput,
   ): Promise<Playlist | null> {
-    console.log(this.prismaService.playlist);
     try {
       const res = await this.prismaService.playlist.create({
         data,
       });
-      console.log(res);
       return res;
     } catch (e) {
-      console.log(e);
       return null;
     }
   }
@@ -64,33 +62,29 @@ export class PlaylistService {
     if (!result) return null;
     return result.tracks;
   }
-  public async getPlaylistById(
-    id: string,
-  ): Promise<Pick<Playlist, 'id' | 'name'> | null> {
+  public async getPlaylistById(id: string): Promise<PlaylistWithTracks | null> {
     const playlist = await this.prismaService.playlist.findFirst({
       where: { id },
-      select: { id: true, name: true },
+      include: { tracks: true },
     });
     if (!playlist) return null;
     return playlist;
   }
-  public async deleteTrackFromPlaylist(
-    playlistId: string,
-    title: string,
-  ): Promise<boolean> {
-    const track = await this.prismaService.track.findFirst({
-      where: { playlistId, title },
-    });
 
-    if (!track) return false;
-    const result = await this.prismaService.playlist.update({
-      where: { id: playlistId },
-      data: {
-        tracks: {
-          disconnect: { id: track.id },
+  async deleteTrackFromPlaylist(
+    playlistId: string,
+    trackId: string,
+  ): Promise<boolean> {
+    try {
+      await this.prismaService.track.delete({
+        where: {
+          id: trackId,
+          playlistId,
         },
-      },
-    });
-    return !!result;
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 }

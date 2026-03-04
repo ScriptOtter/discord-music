@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './core/app.module';
 import { ConfigService } from '@nestjs/config';
 import { Client, GatewayIntentBits } from 'discord.js';
-import { PlayerActivityService } from './player/player-activity.service';
+import { PlayerActivityService } from './player/menu/player-activity.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

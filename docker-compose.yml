@@ -24,11 +24,14 @@ services:
     restart: always
 
     environment:
-      NODE_ENV: production
+      - NODE_ENV=production
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_DEVELOPMENT_GUILD_ID=${DISCORD_DEVELOPMENT_GUILD_ID}
+      - DATABASE_URL=postgresql://postgres:123456@postgres:5432/discord
     ports:
       - '4200:4200'
     volumes:
-      - .:/app
+      - /app/node_modules
 
     networks:
       - discord-music

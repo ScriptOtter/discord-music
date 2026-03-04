@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Context, SlashCommand, SlashCommandContext } from 'necord';
-import { PlayerService } from './player.service';
+import { PlayerService } from '../player.service';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -13,7 +13,9 @@ import {
   GuildMember,
 } from 'discord.js';
 import { PlayerState } from 'src/shared/types/player-state.types';
-import { PlayerStateService } from './player-state.service';
+import { PlayerStateService } from '../player-state.service';
+import { PlayerPlaylistService } from './player-playlist.service';
+import { ICONS } from 'src/shared/utils/icons.enum';
 
 @Injectable()
 export class PlayerMenuService {
@@ -23,6 +25,7 @@ export class PlayerMenuService {
   constructor(
     private readonly playerService: PlayerService,
     private readonly stateService: PlayerStateService,
+    private readonly playlistService: PlayerPlaylistService,
   ) {
     this.playerService.setMenuUpdateCallback(this.updateAllMenus.bind(this));
   }
@@ -57,6 +60,7 @@ export class PlayerMenuService {
   public async createPlayerMenu(@Context() [ctx]: SlashCommandContext) {
     try {
       const embed = this.createPlayerEmbed();
+
       const components = this.createPlayerControls();
 
       const reply = await ctx.reply({
@@ -78,80 +82,65 @@ export class PlayerMenuService {
     }
   }
 
-  private createPlayerEmbed = (): EmbedBuilder => {
+  private createPlayerEmbed(): EmbedBuilder {
     const state = this.stateService.state;
     const currentTrack = this.stateService.getCurrentTrack();
-    const nextTrack = this.stateService.getNextTrack();
-    const previousTrack = this.stateService.getPreviousTrack();
-    const remainingCount = this.stateService.getRemainingTracksCount();
+    const remainingTracks = this.stateService.getRemainingTracks();
+    const nextTrack = this.stateService.getNextTrackInfo();
+    const previousTrack = this.stateService.getPreviousTrackInfo();
     const loopMod = !!this.stateService.getLoop();
     const shuffleMod = !!this.stateService.getShuffle();
     const isJoined = this.stateService.getIsJoined();
-    let footerText: string = '';
-    let counter: number = 2;
-    let currentIndex = this.stateService.currentIndex;
-    while (counter <= 5) {
-      const track = this.stateService.playlist[counter + currentIndex];
-      if (counter === 5) {
-        if (loopMod || shuffleMod) footerText += `⏳ Осталось треков: ♾️`;
-        else
-          footerText += `⏳ Осталось треков: ${remainingCount - counter > 0 ? remainingCount - counter : 0}`;
-        break;
-      }
-      if (track) {
-        if (counter === 2) footerText += `Далее\n`;
-        footerText += `· ${track.title.trim()}\n`;
-        counter++;
-      }
-    }
-
+    const footerText = `⏳ Осталось треков: ${loopMod ? '♾️' : remainingTracks} `;
+    const tracks = this.stateService.getPlaylist();
     const embed = new EmbedBuilder()
       .setColor(this.getStateColor(state))
-      .setTitle('🎵 Afferists Player')
+      .setTitle(`${ICONS.HEADPHONES} Afferists Player`)
       .setDescription(
-        isJoined ? this.getStateDescription(state) : 'Добавьте бота в канал',
+        isJoined
+          ? `Плейлист: ${this.stateService.getPlaylistName()}`
+          : 'Добавьте бота в канал',
       );
-    const filds = [
-      {
-        name: '💿 Сейчас играет',
-        value: currentTrack?.title || 'Ничего не играет',
-        inline: false,
-      },
-      {
-        name: '⏮ Предыдущий трек',
-        value: previousTrack?.title || 'Нет предыдущего трека',
-        inline: true,
-      },
-      {
-        name: '|',
-        value: '|',
-        inline: true,
-      },
-      {
-        name: '⏭ Следующий трек',
-        value: nextTrack?.title || 'Нет в очереди',
-        inline: true,
-      },
-      {
-        name: `🔄 Автоповтор: ${loopMod ? '**Включен**' : '**Выключен**'}`,
-        value: '',
-        inline: false,
-      },
-      {
-        name: `🔀 Микс: ${shuffleMod ? '**Включен**' : '**Выключен**'}`,
-        value: '',
-        inline: false,
-      },
-    ];
     if (isJoined) {
       embed
-        .addFields(filds)
+        .addFields(
+          {
+            name:
+              state === 'Playing'
+                ? `${ICONS.DISK} Сейчас играет`
+                : `${ICONS.LOADING} Ожидает запуска`,
+            value: currentTrack?.title || 'Ничего не играет',
+            inline: false,
+          },
+          {
+            name: `🔄 Автоповтор: ${loopMod ? '**Включен**' : '**Выключен**'}`,
+            value: '',
+            inline: false,
+          },
+          {
+            name: `🔀 Микс: ${shuffleMod ? '**Включен**' : '**Выключен**'}`,
+            value: '',
+            inline: false,
+          },
+        )
 
         .setFooter({
           text: footerText,
         })
         .setTimestamp();
 
+      if (tracks) {
+        embed.addFields([
+          { name: 'Очередь треков:', value: '', inline: false },
+          ...tracks.map((track) => {
+            return {
+              name: ``,
+              value: `${track.track.title === currentTrack?.title ? ICONS.FAVORITE : '•'} ${track.track.title.slice(0, 40)}... `,
+              inline: false,
+            };
+          }),
+        ]);
+      }
       if (currentTrack?.url) {
         embed.setURL(currentTrack.url);
       }
@@ -159,7 +148,7 @@ export class PlayerMenuService {
     }
 
     return embed;
-  };
+  }
 
   private getStateColor(state: PlayerState): number {
     const colors = {
@@ -186,8 +175,8 @@ export class PlayerMenuService {
   private createPlayerControls = (): ActionRowBuilder<ButtonBuilder>[] => {
     const state = this.stateService.state;
     const hasCurrentTrack = !!this.stateService.getCurrentTrack();
-    const hasPreviousTrack = !!this.stateService.getPreviousTrack();
-    const hasNextTrack = !!this.stateService.getNextTrack();
+    const hasPreviousTrack = !!this.stateService.getPreviousTrackInfo();
+    const hasNextTrack = !!this.stateService.getNextTrackInfo();
     const loopMod = !!this.stateService.getLoop();
     const shuffleMod = !!this.stateService.getShuffle();
     const isJoined = this.stateService.getIsJoined();
@@ -195,7 +184,7 @@ export class PlayerMenuService {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_join')
-        .setLabel('     🤖 Добавить бота в канал 🤖     ')
+        .setLabel(`${ICONS.ROBOT} Закинь бота в комнату ${ICONS.ROBOT}`)
         .setStyle(ButtonStyle.Success)
         .setDisabled(isJoined),
     );
@@ -203,26 +192,26 @@ export class PlayerMenuService {
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_previous')
-        .setLabel('⏮ Previous')
+        .setLabel(`${ICONS.PREV} Предыдущий`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(
           !hasPreviousTrack || shuffleMod || !isJoined || isBuffering,
         ),
       new ButtonBuilder()
         .setCustomId('player_play')
-        .setLabel('▶️ Play')
+        .setLabel(`${ICONS.PLAY} Play`)
         .setStyle(ButtonStyle.Success)
         .setDisabled(
           state === 'Playing' || !hasCurrentTrack || !isJoined || isBuffering,
         ),
       new ButtonBuilder()
         .setCustomId('player_pause')
-        .setLabel('⏸ Pause')
+        .setLabel(`${ICONS.PAUSE} Пауза`)
         .setStyle(ButtonStyle.Primary)
         .setDisabled(state !== 'Playing' || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_skip')
-        .setLabel('⏭ Skip')
+        .setLabel(`${ICONS.NEXT} Следующий`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(!hasNextTrack || !isJoined || isBuffering),
     );
@@ -230,36 +219,49 @@ export class PlayerMenuService {
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_loop')
-        .setLabel('🔄 Loop')
+        .setLabel(`${ICONS.LOOP} Loop`)
         .setStyle(loopMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(shuffleMod || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_shuffle')
-        .setLabel('🔀 Shuffle')
+        .setLabel(`${ICONS.SHUFFLE} Shuffle`)
         .setStyle(shuffleMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(loopMod || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_clear')
-        .setLabel('🗑 Clear')
+        .setLabel(`${ICONS.DELETE} Clear`)
         .setStyle(ButtonStyle.Danger)
         .setDisabled(
-          this.stateService.playlist.length === 0 || !isJoined || isBuffering,
+          this.stateService.getRemainingTracks() === 0 ||
+            !isJoined ||
+            isBuffering,
         ),
       new ButtonBuilder()
         .setCustomId('player_refresh')
-        .setLabel('🔄 Обновить')
+        .setLabel(`${ICONS.REFRESH} Обновить`)
         .setStyle(ButtonStyle.Secondary),
     );
 
     const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_leave')
-        .setLabel('     🤖 Выгнать бота 🤖     ')
+        .setLabel(`${ICONS.ROBOT} Выгнать бота из комнаты ${ICONS.ROBOT}`)
         .setStyle(ButtonStyle.Danger)
         .setDisabled(state === 'Playing'),
+      new ButtonBuilder()
+        .setCustomId('player_playlist')
+        .setLabel(`${ICONS.HEADPHONES} Плейлист`)
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(state === 'Playing'),
     );
-
-    return isJoined ? [row1, row2, row3] : [row, row1, row2];
+    const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId('player_playlist')
+        .setLabel(`${ICONS.HEADPHONES} Плейлист`)
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(state === 'Playing'),
+    );
+    return isJoined ? [row1, row2, row3] : [row, row1, row2, row4];
   };
 
   private setupCollector(message: Message) {
@@ -350,6 +352,9 @@ export class PlayerMenuService {
         case 'refresh':
           await this.handleRefresh(interaction);
           break;
+        case 'playlist':
+          await this.handlePlaylist(interaction);
+          break;
         default:
           await interaction
             .followUp({
@@ -374,6 +379,10 @@ export class PlayerMenuService {
         );
       }
     }
+  }
+
+  private async handlePlaylist(interaction: ButtonInteraction) {
+    this.playlistService.getPlaylistButtons(interaction);
   }
 
   private async handleJoin(interaction: ButtonInteraction) {
@@ -409,7 +418,7 @@ export class PlayerMenuService {
   }
 
   private async handlePlay(interaction: ButtonInteraction) {
-    const hasCurrentTrack = this.stateService.getCurrentTrack();
+    const hasCurrentTrack = !!this.stateService.getCurrentTrack();
     const state = this.stateService.state;
 
     if (!hasCurrentTrack) {
@@ -417,7 +426,7 @@ export class PlayerMenuService {
     }
 
     try {
-      if (state === 'Idle') await this.playerService.playAudio();
+      if (state === 'Idle') await this.playerService.play();
       if (state === 'Paused' || state === 'AutoPaused')
         this.playerService.unpause();
       await this.updateMenu(interaction);
@@ -465,20 +474,26 @@ export class PlayerMenuService {
 
   private async handleSkip(interaction: ButtonInteraction) {
     try {
-      const skippedTrack = this.stateService.getCurrentTrack()?.title;
-      this.playerService.pause();
-      const result = this.playerService.skipTrack();
-
-      if (result) {
-        this.playerService.unpause();
-        await this.updateMenu(interaction);
+      if (
+        this.stateService.state === 'Playing' ||
+        this.stateService.state === 'Buffering'
+      ) {
+        this.playerService.pause();
+        const result = this.playerService.skip();
+        if (result) {
+          this.playerService.unpause();
+          await this.updateMenu(interaction);
+        } else {
+          await interaction
+            .followUp({
+              content: '❌ Не удалось пропустить трек',
+              flags: 64,
+            })
+            .catch(() => {});
+        }
       } else {
-        await interaction
-          .followUp({
-            content: '❌ Не удалось пропустить трек',
-            flags: 64,
-          })
-          .catch(() => {});
+        this.stateService.getNextTrack();
+        await this.updateMenu(interaction);
       }
     } catch (error) {
       this.logger.error(`Skip error: ${error.message}`);
@@ -494,25 +509,33 @@ export class PlayerMenuService {
 
   private async handlePrevious(interaction: ButtonInteraction) {
     try {
-      const previousTrack = this.stateService.getPreviousTrack();
+      if (
+        this.stateService.state === 'Playing' ||
+        this.stateService.state === 'Buffering'
+      ) {
+        const previousTrack = this.stateService.getPreviousTrack();
 
-      if (!previousTrack) {
-        return;
-      }
+        if (!previousTrack) {
+          return;
+        }
 
-      if (previousTrack) {
-        this.playerService.pause();
-        this.stateService.setPreviousTrack();
-        this.playerService.skipTrack();
-        this.playerService.unpause();
-        await this.updateMenu(interaction);
+        if (previousTrack) {
+          this.playerService.pause();
+          this.stateService.getPreviousTrack();
+          this.playerService.skip();
+          this.playerService.unpause();
+          await this.updateMenu(interaction);
+        } else {
+          await interaction
+            .followUp({
+              content: '❌ Не удалось переключить на предыдущий трек',
+              flags: 64,
+            })
+            .catch(() => {});
+        }
       } else {
-        await interaction
-          .followUp({
-            content: '❌ Не удалось переключить на предыдущий трек',
-            flags: 64,
-          })
-          .catch(() => {});
+        this.stateService.getPreviousTrack();
+        await this.updateMenu(interaction);
       }
     } catch (error) {
       this.logger.error(`Previous error: ${error.message}`);

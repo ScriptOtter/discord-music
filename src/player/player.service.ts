@@ -10,8 +10,11 @@ import {
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { YoutubeService } from 'src/modules/youtube/youtube.service';
-import { PlaylistType } from 'src/shared/types/playlist.types';
-import { PlayerActivityService } from './player-activity.service';
+import {
+  PlaylistType,
+  PlaylistWithTracks,
+} from 'src/shared/types/playlist.types';
+import { PlayerActivityService } from './menu/player-activity.service';
 import { PlayerStateService } from './player-state.service';
 import { PlaylistService } from 'src/modules/playlist/playlist.service';
 
@@ -30,9 +33,8 @@ export class PlayerService {
     private readonly playlistService: PlaylistService,
   ) {
     this.player = createAudioPlayer();
-
-    this.loadTestPlaylist();
     this.setupPlayerListeners();
+    this.loadTestPlaylist();
   }
 
   public setMenuUpdateCallback(callback: () => Promise<void>): void {
@@ -48,18 +50,37 @@ export class PlayerService {
       }
     }
   }
-  public setPlaylist(playlist: PlaylistType[]): boolean {
-    this.stateService.clearPlaylist();
-    this.stateService.currentIndex = 0;
-
-    this.stateService.setPlaylist(playlist);
-    this.logger.log('Плейлист добавлен');
-    return true;
-  }
 
   private async loadTestPlaylist(): Promise<void> {
-    const playlist = await this.playlistService.getAllTracks();
-    if (playlist) this.setPlaylist([...playlist]);
+    const tracks = await this.playlistService.getAllTracks();
+    if (!tracks) this.setPlaylist({ id: '1', name: '1', url: '12' });
+    const playlist: PlaylistWithTracks = {
+      id: 'mix',
+      name: 'mix',
+      tracks: tracks.map((track) => {
+        return {
+          id: track.id,
+          title: track.title,
+          url: track.url,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          playlistId: 'mix',
+        };
+      }),
+      owner: 'mix',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    {
+      this.stateService.setPlaylist(playlist);
+      this.logger.log('Test playlist loaded');
+    }
+  }
+
+  public setPlaylist(playlist): boolean {
+    this.stateService.setPlaylist(playlist);
+    this.logger.log(`Плейлист "${playlist.name}" загружен`);
+    return true;
   }
 
   private setupPlayerListeners(): void {
@@ -69,7 +90,6 @@ export class PlayerService {
 
       const currentTrack = this.stateService.getCurrentTrack();
       if (currentTrack) {
-        this.logger.log(`Playing: ${currentTrack.title}`);
         this.activityService.onPlaying(currentTrack.title, currentTrack.url);
         this.triggerMenuUpdate();
       }
@@ -77,21 +97,18 @@ export class PlayerService {
 
     this.player.on(AudioPlayerStatus.Buffering, () => {
       this.stateService.setState('Buffering');
-      this.logger.log('Buffering...');
       this.activityService.onBuffering();
       this.triggerMenuUpdate();
     });
 
     this.player.on(AudioPlayerStatus.Paused, () => {
       this.stateService.setState('Paused');
-      this.logger.log('Paused');
       this.activityService.onPaused();
       this.triggerMenuUpdate();
     });
 
     this.player.on(AudioPlayerStatus.AutoPaused, () => {
       this.stateService.setState('AutoPaused');
-      this.logger.warn('AutoPaused');
       this.activityService.onAutoPaused();
       this.triggerMenuUpdate();
     });
@@ -99,11 +116,10 @@ export class PlayerService {
     this.player.on(AudioPlayerStatus.Idle, () => {
       this.stateService.setState('Idle');
       this.stateService.setIsPlaying(false);
-      this.logger.log('Finished playing');
-      this.triggerMenuUpdate();
 
-      const hasNextTrack = !!this.stateService.getNextTrack();
+      const hasNextTrack = !!this.stateService.getNextTrackInfo();
       this.activityService.onIdle(hasNextTrack);
+      this.triggerMenuUpdate();
 
       if (hasNextTrack) {
         this.playNext();
@@ -118,12 +134,66 @@ export class PlayerService {
       this.triggerMenuUpdate();
     });
   }
+
+  public async play(): Promise<boolean> {
+    const queueInfo = this.stateService.getQueueInfo();
+
+    if (queueInfo.totalTracks === 0) {
+      this.logger.warn('Cannot play: empty playlist');
+      return false;
+    }
+
+    if (this.stateService.isPlaying) {
+      this.logger.warn('Already playing');
+      return false;
+    }
+
+    const currentTrack = this.stateService.getCurrentTrack();
+    if (currentTrack) {
+      return await this.playTrack(currentTrack);
+    }
+
+    return false;
+  }
+
+  private async playTrack(track: PlaylistType): Promise<boolean> {
+    return new Promise(async (resolve) => {
+      try {
+        this.logger.log(`Loading track: ${track.title}`);
+
+        const stream = this.youtubeService.createStream(track.url);
+        const resource = createAudioResource(stream);
+        this.player.play(resource);
+
+        const onIdle = () => {
+          this.player.removeListener(AudioPlayerStatus.Idle, onIdle);
+          this.logger.log(`Finished: ${track.title}`);
+          resolve(true);
+        };
+
+        this.player.on(AudioPlayerStatus.Idle, onIdle);
+      } catch (error) {
+        this.logger.error(`Failed to play: ${error.message}`);
+        resolve(false);
+      }
+    });
+  }
+
   private async playNext(): Promise<void> {
     const nextTrack = this.stateService.getNextTrack();
-    if (nextTrack) {
+    if (nextTrack && this.stateService.state === 'Playing') {
       await this.playTrack(nextTrack);
     }
   }
+
+  public async playPrevious(): Promise<boolean> {
+    const prevTrack = this.stateService.getPreviousTrack();
+    if (prevTrack && this.stateService.state === 'Playing') {
+      return await this.playTrack(prevTrack);
+    }
+    return false;
+  }
+
   public join(
     channelId: string,
     guildId: string,
@@ -163,94 +233,17 @@ export class PlayerService {
     }
   }
 
-  public async playAudio(): Promise<boolean> {
-    if (this.stateService.playlist.length === 0) {
-      this.logger.warn('Cannot play: empty playlist');
+  public pause(): boolean {
+    try {
+      const result = this.player.pause();
+      if (result) {
+        this.logger.log('Paused');
+      }
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to pause: ${error.message}`);
       return false;
     }
-
-    if (this.stateService.isPlaying) {
-      this.logger.warn('Already playing');
-      return false;
-    }
-
-    while (this.stateService.currentIndex < this.stateService.playlist.length) {
-      let index = this.stateService.currentIndex;
-      if (index < 0) {
-        this.stateService.currentIndex = 0;
-        continue;
-      }
-
-      if (this.stateService.shuffle) {
-        const randomIndex = Math.floor(
-          Math.random() * this.stateService.playlist.length,
-        );
-        const success = await this.playTrack(
-          this.stateService.playlist[randomIndex],
-        );
-        if (!success) break;
-      } else {
-        const track = this.stateService.playlist[index];
-        console.log(track, index);
-        const success = await this.playTrack(track);
-        if (!success) break;
-
-        if (!this.stateService.loop) {
-          this.stateService.incrementCurrentIndex();
-        }
-      }
-    }
-    return true;
-  }
-
-  private async playTrack(track: PlaylistType): Promise<boolean> {
-    const { title, url } = track;
-    return new Promise(async (resolve) => {
-      try {
-        this.logger.log(`Loading track: ${track.url}`);
-
-        this.stateService.currentTrack = {
-          title,
-          url,
-        };
-        await this.triggerMenuUpdate();
-        const stream = this.youtubeService.createStream(track.url);
-        const resource = createAudioResource(stream);
-        this.player.play(resource);
-
-        const onIdle = () => {
-          this.player.removeListener(AudioPlayerStatus.Idle, onIdle);
-          this.stateService.state = 'Idle';
-          this.stateService.currentTrack = null;
-          this.logger.log(`Finished: ${title}`);
-          resolve(true);
-        };
-
-        this.player.on(AudioPlayerStatus.Idle, onIdle);
-      } catch (error) {
-        this.logger.error(`Failed to play: ${error.message}`);
-        this.stateService.currentTrack = null;
-        await this.triggerMenuUpdate();
-
-        resolve(false);
-      }
-    });
-  }
-
-  public setLoop(): boolean {
-    return this.stateService.toggleLoop();
-  }
-
-  public getLoop(): boolean {
-    return this.stateService.getLoop();
-  }
-
-  public setShuffle(): boolean {
-    return this.stateService.toggleShuffle();
-  }
-
-  public getShuffle(): boolean {
-    return this.stateService.getShuffle();
   }
 
   public unpause(): boolean {
@@ -266,20 +259,7 @@ export class PlayerService {
     }
   }
 
-  public pause(): boolean {
-    try {
-      const result = this.player.pause();
-      if (result) {
-        this.logger.log('Paused');
-      }
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to pause: ${error.message}`);
-      return false;
-    }
-  }
-
-  public skipTrack(): boolean {
+  public skip(): boolean {
     try {
       const result = this.player.stop();
       if (result) {
@@ -292,12 +272,39 @@ export class PlayerService {
     }
   }
 
+  public stop(): boolean {
+    try {
+      this.player.stop();
+      this.stateService.clearPlaylist();
+      this.logger.log('Stopped and cleared playlist');
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to stop: ${error.message}`);
+      return false;
+    }
+  }
+
+  public toggleShuffle(): boolean {
+    return this.stateService.toggleShuffle();
+  }
+
+  public toggleLoop(): boolean {
+    return this.stateService.toggleLoop();
+  }
+
   public isConnected(): boolean {
     return this.client !== null;
   }
 
-  public clearPlaylist(): void {
-    this.stateService.clearPlaylist();
-    this.logger.log('Playlist cleared');
+  public getQueueInfo() {
+    return this.stateService.getQueueInfo();
+  }
+
+  public getUpcomingTracks() {
+    return this.stateService.getUpcomingTracks();
+  }
+
+  public getHistory() {
+    return this.stateService.getHistory();
   }
 }
