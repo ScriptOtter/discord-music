@@ -61,11 +61,11 @@ DISCORD_DEVELOPMENT_GUILD_ID=
 ```
 
 ### Youtube Cookies
-
-- Для стабильной работы приложения необходимо создать файл cookies.txt в корневой директории
-- Необходимо установить расширение [get-cookiestxt-locally](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
+#### Для стабильной работы приложения необходимо 
+- Cоздать файл cookies.txt в корневой директории
+- Установить расширение [get-cookiestxt-locally](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
 - Зайти на Youtube и нажать кнопку «Copy» в расширении
-- Вставить в папку cookies.txt
+- Вставить cookie в папку cookies.txt
 
 ### Discord tokens
 
