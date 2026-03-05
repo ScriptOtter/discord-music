@@ -53,11 +53,7 @@ export class PlayerMenuService {
     await Promise.allSettled(updatePromises);
   }
 
-  @SlashCommand({
-    name: 'player',
-    description: 'Открыть меню управления плеером',
-  })
-  public async createPlayerMenu(@Context() [ctx]: SlashCommandContext) {
+  public async createPlayerMenu([ctx]: SlashCommandContext) {
     try {
       const embed = this.createPlayerEmbed();
 
@@ -86,12 +82,16 @@ export class PlayerMenuService {
     const state = this.stateService.state;
     const currentTrack = this.stateService.getCurrentTrack();
     const remainingTracks = this.stateService.getRemainingTracks();
-    const nextTrack = this.stateService.getNextTrackInfo();
-    const previousTrack = this.stateService.getPreviousTrackInfo();
     const loopMod = !!this.stateService.getLoop();
-    const shuffleMod = !!this.stateService.getShuffle();
     const isJoined = this.stateService.getIsJoined();
-    const footerText = `⏳ Осталось треков: ${loopMod ? '♾️' : remainingTracks} `;
+    let footerText = '';
+    if (loopMod)
+      footerText = `${ICONS.LOADING} Осталось треков: ${ICONS.INFINITY} `;
+    else if (remainingTracks > 1)
+      footerText = `${ICONS.LOADING} Осталось треков: ${remainingTracks} `;
+    else if (remainingTracks === 1)
+      footerText = `${ICONS.FAVORITE} Играет последний трек`;
+    else footerText = `Загрузите треки из плейлиста`;
     const tracks = this.stateService.getPlaylist();
     const embed = new EmbedBuilder()
       .setColor(this.getStateColor(state))
@@ -101,6 +101,7 @@ export class PlayerMenuService {
           ? `Плейлист: ${this.stateService.getPlaylistName()}`
           : 'Добавьте бота в канал',
       );
+
     if (isJoined) {
       embed
         .addFields(
@@ -114,11 +115,6 @@ export class PlayerMenuService {
           },
           {
             name: `🔄 Автоповтор: ${loopMod ? '**Включен**' : '**Выключен**'}`,
-            value: '',
-            inline: false,
-          },
-          {
-            name: `🔀 Микс: ${shuffleMod ? '**Включен**' : '**Выключен**'}`,
             value: '',
             inline: false,
           },
@@ -161,17 +157,6 @@ export class PlayerMenuService {
     return colors[state] || 0x0099ff;
   }
 
-  private getStateDescription(state: PlayerState): string {
-    const descriptions = {
-      Playing: '▶️ Сейчас воспроизводится',
-      Paused: '⏸ На паузе',
-      Buffering: '⏳ Буферизация...',
-      Idle: '⏹ Ожидание',
-      AutoPaused: '⚠ Автопауза',
-    };
-    return descriptions[state] || 'Статус неизвестен';
-  }
-
   private createPlayerControls = (): ActionRowBuilder<ButtonBuilder>[] => {
     const state = this.stateService.state;
     const hasCurrentTrack = !!this.stateService.getCurrentTrack();
@@ -194,9 +179,7 @@ export class PlayerMenuService {
         .setCustomId('player_previous')
         .setLabel(`${ICONS.PREV} Предыдущий`)
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(
-          !hasPreviousTrack || shuffleMod || !isJoined || isBuffering,
-        ),
+        .setDisabled(!hasPreviousTrack || !isJoined || isBuffering),
       new ButtonBuilder()
         .setCustomId('player_play')
         .setLabel(`${ICONS.PLAY} Play`)
@@ -221,12 +204,14 @@ export class PlayerMenuService {
         .setCustomId('player_loop')
         .setLabel(`${ICONS.LOOP} Loop`)
         .setStyle(loopMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
-        .setDisabled(shuffleMod || !isJoined || isBuffering),
+        .setDisabled(
+          shuffleMod || !isJoined || isBuffering || !hasCurrentTrack,
+        ),
       new ButtonBuilder()
         .setCustomId('player_shuffle')
         .setLabel(`${ICONS.SHUFFLE} Shuffle`)
         .setStyle(shuffleMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
-        .setDisabled(loopMod || !isJoined || isBuffering),
+        .setDisabled(loopMod || !isJoined || isBuffering || !hasCurrentTrack),
       new ButtonBuilder()
         .setCustomId('player_clear')
         .setLabel(`${ICONS.DELETE} Clear`)
@@ -492,7 +477,16 @@ export class PlayerMenuService {
             .catch(() => {});
         }
       } else {
-        this.stateService.getNextTrack();
+        if (this.stateService.state === 'Paused') {
+          this.playerService.stop(true);
+          this.stateService.getPreviousTrack();
+          const hasPrevTrack = this.stateService.getPreviousTrackInfo();
+          if (hasPrevTrack) this.stateService.getNextTrack();
+        }
+
+        if (this.stateService.state === 'Idle')
+          this.stateService.getNextTrack();
+
         await this.updateMenu(interaction);
       }
     } catch (error) {
@@ -534,7 +528,13 @@ export class PlayerMenuService {
             .catch(() => {});
         }
       } else {
-        this.stateService.getPreviousTrack();
+        if (this.stateService.state === 'Paused') {
+          this.playerService.stop(true);
+        }
+
+        if (this.stateService.state === 'Idle') {
+          this.stateService.getPreviousTrack();
+        }
         await this.updateMenu(interaction);
       }
     } catch (error) {
@@ -582,6 +582,7 @@ export class PlayerMenuService {
   private async handleClear(interaction: ButtonInteraction) {
     try {
       this.stateService.clearPlaylist();
+      this.playerService.stop(true);
       await this.updateMenu(interaction);
     } catch (error) {
       this.logger.error(`Clear error: ${error.message}`);

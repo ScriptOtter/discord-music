@@ -56,6 +56,13 @@ export class PlayerPlaylistService {
         );
       }
 
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`playlist_mix`)
+          .setLabel(`${ICONS.DISK} mix`)
+          .setStyle(ButtonStyle.Secondary),
+      );
+
       const message = await interaction.followUp({
         content: '**Выберите плейлист**',
         components: [row, row2],
@@ -104,6 +111,11 @@ export class PlayerPlaylistService {
     if (method === 'create') {
       return await this.showCreatePlaylistModal(interaction);
     }
+    if (method === 'playlist' && id === 'mix') {
+      const mix = await this.playlistService.getMixPlaylist();
+      this.playerService.setPlaylist(mix);
+      return interaction.reply({ content: 'Плейлист Mix загружен', flags: 64 });
+    }
 
     const playlist = await this.playlistService.getPlaylistById(id);
     if (!playlist) {
@@ -111,6 +123,19 @@ export class PlayerPlaylistService {
         content: 'Плейлист не найден',
         flags: 64,
       });
+    }
+
+    if (method === 'deletePlaylist') {
+      console.log(playlist);
+      return this.showDeletePlaylistModal(interaction, playlist.id);
+    }
+
+    if (method === 'updatePlaylist') {
+      return this.showUpdatePlaylistNameModal(
+        interaction,
+        playlist.id,
+        playlist.name,
+      );
     }
 
     if (method === 'add') {
@@ -180,9 +205,9 @@ export class PlayerPlaylistService {
 
       if (messageToUpdate) {
         const embed = this.createEmbed(updatedPlaylist);
-        const row = getPlaylistMenu(playlist.id);
+        const components = getPlaylistMenu(playlist.id);
 
-        await messageToUpdate.edit({ embeds: [embed], components: [row] });
+        await messageToUpdate.edit({ embeds: [embed], components });
       }
     } catch (error) {
       this.logger.debug(`Could not update playlist menu: ${error.message}`);
@@ -194,11 +219,17 @@ export class PlayerPlaylistService {
     playlist: PlaylistWithTracks,
   ) {
     const embed = this.createEmbed(playlist);
-    const row = getPlaylistMenu(playlist.id);
+    const components = getPlaylistMenu(playlist.id);
     if (interaction.deferred) {
-      await interaction.editReply({ embeds: [embed], components: [row] });
+      await interaction.editReply({
+        embeds: [embed],
+        components,
+      });
     } else {
-      await interaction.message.edit({ embeds: [embed], components: [row] });
+      await interaction.message.edit({
+        embeds: [embed],
+        components,
+      });
     }
   }
 
@@ -352,7 +383,7 @@ export class PlayerPlaylistService {
 
       const tracksInput = new TextInputBuilder()
         .setCustomId('track_ids')
-        .setLabel('ID треков для удаления') // Укороченная версия (20 символов)
+        .setLabel('ID треков для удаления')
         .setStyle(TextInputStyle.Paragraph)
         .setPlaceholder(
           'Введите ID треков (каждый с новой строки)\nПример: abc123\ndef456',
@@ -370,5 +401,53 @@ export class PlayerPlaylistService {
     } catch (error) {
       this.logger.error(`Error showing delete modal: ${error.message}`);
     }
+  }
+
+  private async showDeletePlaylistModal(
+    interaction: ButtonInteraction,
+    playlistId: string,
+  ) {
+    const modal = new ModalBuilder()
+      .setCustomId(`delete_playlist_modal_${playlistId}`)
+      .setTitle('Удаление плейлиста')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('confirmation')
+            .setLabel('Введите "да" для подтверждения')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('да')
+            .setRequired(true)
+            .setMinLength(2)
+            .setMaxLength(3),
+        ),
+      );
+
+    await interaction.showModal(modal);
+  }
+
+  private async showUpdatePlaylistNameModal(
+    interaction: ButtonInteraction,
+    playlistId: string,
+    currentName: string,
+  ) {
+    const modal = new ModalBuilder()
+      .setCustomId(`update_playlist_name_modal_${playlistId}`)
+      .setTitle('Обновление названия плейлиста')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('playlist_name')
+            .setLabel('Новое название плейлиста')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Введите новое название...')
+            .setRequired(true)
+            .setMinLength(1)
+            .setMaxLength(100)
+            .setValue(currentName),
+        ),
+      );
+
+    await interaction.showModal(modal);
   }
 }

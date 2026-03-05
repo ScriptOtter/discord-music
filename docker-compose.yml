@@ -6,38 +6,37 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: discord
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - discord-music
+      - discord-music-release
 
-  discord-music:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: discord-music
+    container_name: discord-music-release
     restart: always
-
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV}
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DISCORD_DEVELOPMENT_GUILD_ID=${DISCORD_DEVELOPMENT_GUILD_ID}
-      - DATABASE_URL=postgresql://postgres:123456@postgres:5432/discord
+      - DATABASE_URL=${DATABASE_URL}
     ports:
       - '4200:4200'
     volumes:
       - /app/node_modules
 
     networks:
-      - discord-music
+      - discord-music-release
 
 volumes:
   postgres_data:
 
 networks:
-  discord-music:
+  discord-music-release:

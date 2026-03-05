@@ -74,6 +74,10 @@ export class PlayerStateService {
    * Перемешать очередь (сохраняя историю)
    */
   private shuffleQueue(): void {
+    const currentQueuedTrack = this.queue.tracks[this.queue.currentIndex];
+    currentQueuedTrack.played = true;
+
+    this.queue.history.push({ ...currentQueuedTrack });
     const unplayedTracks = this.queue.tracks
       .filter((t) => !t.played)
       .map((t) => ({ ...t }));
@@ -134,8 +138,7 @@ export class PlayerStateService {
   public getNextTrackInfo(): PlaylistType | null {
     if (this.queue.tracks.length === 0) return null;
 
-    let nextIndex = this.queue.history.length + 1;
-
+    let nextIndex = this.queue.currentIndex + 1;
     if (!this.queue.tracks[nextIndex]) return null;
     return this.queue.tracks[nextIndex].track;
   }
@@ -144,7 +147,6 @@ export class PlayerStateService {
    * Получить предыдущий трек
    */
   public getPreviousTrack(): PlaylistType | null {
-    this.logger.log('getPreviousTrack');
     if (this.queue.history.length === 0) return null;
     if (this.loop) {
       return this.currentTrack;
@@ -189,6 +191,7 @@ export class PlayerStateService {
       }
     }
 
+    this.shuffle = !this.shuffle;
     return this.shuffle;
   }
 

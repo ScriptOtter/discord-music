@@ -10,10 +10,7 @@ import {
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { YoutubeService } from 'src/modules/youtube/youtube.service';
-import {
-  PlaylistType,
-  PlaylistWithTracks,
-} from 'src/shared/types/playlist.types';
+import { PlaylistType } from 'src/shared/types/playlist.types';
 import { PlayerActivityService } from './menu/player-activity.service';
 import { PlayerStateService } from './player-state.service';
 import { PlaylistService } from 'src/modules/playlist/playlist.service';
@@ -24,7 +21,7 @@ export class PlayerService {
   private client: VoiceConnection | null = null;
   private player: AudioPlayer;
   private menuUpdateCallback: (() => Promise<void>) | null = null;
-
+  private stopped: boolean = false;
   constructor(
     private readonly configService: ConfigService,
     private readonly youtubeService: YoutubeService,
@@ -52,32 +49,13 @@ export class PlayerService {
   }
 
   private async loadTestPlaylist(): Promise<void> {
-    const tracks = await this.playlistService.getAllTracks();
-    if (!tracks) this.setPlaylist({ id: '1', name: '1', url: '12' });
-    const playlist: PlaylistWithTracks = {
-      id: 'mix',
-      name: 'mix',
-      tracks: tracks.map((track) => {
-        return {
-          id: track.id,
-          title: track.title,
-          url: track.url,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          playlistId: 'mix',
-        };
-      }),
-      owner: 'mix',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    {
-      this.stateService.setPlaylist(playlist);
-      this.logger.log('Test playlist loaded');
-    }
+    const mixPlaylist = await this.playlistService.getMixPlaylist();
+    this.stateService.setPlaylist(mixPlaylist);
+    this.logger.log('Test playlist loaded');
   }
 
   public setPlaylist(playlist): boolean {
+    this.stop(true);
     this.stateService.setPlaylist(playlist);
     this.logger.log(`Плейлист "${playlist.name}" загружен`);
     return true;
@@ -120,8 +98,8 @@ export class PlayerService {
       const hasNextTrack = !!this.stateService.getNextTrackInfo();
       this.activityService.onIdle(hasNextTrack);
       this.triggerMenuUpdate();
-
-      if (hasNextTrack) {
+      // Автоматический запуск след трека если он есть
+      if (hasNextTrack && !this.stopped) {
         this.playNext();
       }
     });
@@ -147,7 +125,7 @@ export class PlayerService {
       this.logger.warn('Already playing');
       return false;
     }
-
+    this.stopped = false;
     const currentTrack = this.stateService.getCurrentTrack();
     if (currentTrack) {
       return await this.playTrack(currentTrack);
@@ -181,14 +159,14 @@ export class PlayerService {
 
   private async playNext(): Promise<void> {
     const nextTrack = this.stateService.getNextTrack();
-    if (nextTrack && this.stateService.state === 'Playing') {
+    if (nextTrack) {
       await this.playTrack(nextTrack);
     }
   }
 
   public async playPrevious(): Promise<boolean> {
     const prevTrack = this.stateService.getPreviousTrack();
-    if (prevTrack && this.stateService.state === 'Playing') {
+    if (prevTrack) {
       return await this.playTrack(prevTrack);
     }
     return false;
@@ -262,6 +240,7 @@ export class PlayerService {
   public skip(): boolean {
     try {
       const result = this.player.stop();
+
       if (result) {
         this.logger.log('Skipped track');
       }
@@ -272,10 +251,10 @@ export class PlayerService {
     }
   }
 
-  public stop(): boolean {
+  public stop(force?: boolean): boolean {
     try {
-      this.player.stop();
-      this.stateService.clearPlaylist();
+      this.stopped = true;
+      this.player.stop(force);
       this.logger.log('Stopped and cleared playlist');
       return true;
     } catch (error) {

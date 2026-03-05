@@ -22,4 +22,5 @@ export enum ICONS {
   FAVORITE = '⭐',
   ROBOT = '🤖',
   DISK = '💿',
+  INFINITY = '♾️',
 }

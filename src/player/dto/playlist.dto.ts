@@ -15,16 +15,3 @@ export class AddTrackDto {
   })
   url: string;
 }
-
-export class AddTracksModalDto {
-  tracks: string;
-}
-
-export class DeleteTracksModalDto {
-  trackIds: string;
-}
-
-export class CreatePlaylistModalDto {
-  playlistName: string;
-  tracks: string;
-}

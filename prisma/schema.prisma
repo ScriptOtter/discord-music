@@ -9,7 +9,7 @@ datasource db {
 }
 
 model Playlist {
-  id String @id @default(nanoid())
+  id String @id @default(cuid())
   owner String
   name String
   tracks Track[]
@@ -19,7 +19,7 @@ model Playlist {
 }
 
 model Track {
-  id String @id @default(nanoid())
+  id String @id @default(cuid())
   title String
   url String
   playlist Playlist @relation(references: [id], fields: [playlistId], onDelete: Cascade)

@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Context, Modal, ModalContext, ModalParam } from 'necord';
-import {
-  AddTracksModalDto,
-  CreatePlaylistModalDto,
-  DeleteTracksModalDto,
-} from '../dto/playlist.dto';
+
 import { PlaylistService } from 'src/modules/playlist/playlist.service';
 import {
   ActionRowBuilder,
@@ -25,10 +21,7 @@ export class PlayerModalService {
   ) {}
 
   @Modal('create_playlist_modal')
-  public async createPlaylist(
-    @Context() [interaction]: ModalContext,
-    @ModalParam() dto: CreatePlaylistModalDto,
-  ) {
+  private async createPlaylist(@Context() [interaction]: ModalContext) {
     const playlistName = interaction.fields.getTextInputValue('playlist_name');
     const tracksInput = interaction.fields.getTextInputValue('tracks');
 
@@ -158,7 +151,6 @@ export class PlayerModalService {
         });
       }
 
-      // Кнопка для перехода к плейлисту
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`playlist_${playlist.id}`)
@@ -177,7 +169,6 @@ export class PlayerModalService {
         components: [row],
       });
 
-      // Удаляем предыдущее сообщение если есть
       if (previousMessage) {
         try {
           await previousMessage.delete();
@@ -201,10 +192,9 @@ export class PlayerModalService {
   }
 
   @Modal('add_tracks_modal_:playlistId')
-  public async addTrack(
+  private async addTrack(
     @Context() [interaction]: ModalContext,
     @ModalParam('playlistId') playlistId: string,
-    @ModalParam() dto: AddTracksModalDto,
   ) {
     const tracksInput = interaction.fields.getTextInputValue('tracks');
 
@@ -357,7 +347,6 @@ export class PlayerModalService {
   private async delTrack(
     @Context() [interaction]: ModalContext,
     @ModalParam('playlistId') playlistId: string,
-    @ModalParam() dto: DeleteTracksModalDto,
   ) {
     const trackIdsInput = interaction.fields.getTextInputValue('track_ids');
 
@@ -513,6 +502,193 @@ export class PlayerModalService {
       await interaction
         .editReply({
           content: `${ICONS.ERROR} Ошибка: ${error.message}`,
+        })
+        .catch(() => {});
+    }
+  }
+
+  @Modal('delete_playlist_modal_:playlistId')
+  private async deletePlaylist(
+    @Context() [interaction]: ModalContext,
+    @ModalParam('playlistId') playlistId: string,
+  ) {
+    const confirmation = interaction.fields.getTextInputValue('confirmation');
+
+    await interaction.deferReply({ flags: 64 });
+
+    try {
+      if (confirmation.toLowerCase() !== 'да') {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Удаление отменено: введите "да" для подтверждения`,
+        });
+      }
+
+      const playlist = await this.playlistService.getPlaylistById(playlistId);
+      if (!playlist) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Плейлист не найден`,
+        });
+      }
+      if (playlist.owner !== interaction.user.username) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Вы не можете удалить этот плейлист`,
+        });
+      }
+
+      await this.playlistService.deletePlaylist(playlistId);
+
+      const embed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle('Плейлист удален')
+        .setDescription(`Плейлист "${playlist.name}" был успешно удален`)
+        .addFields(
+          {
+            name: 'ID плейлиста',
+            value: `\`${playlistId}\``,
+            inline: true,
+          },
+          {
+            name: 'Владелец',
+            value: playlist.owner,
+            inline: true,
+          },
+        )
+        .setTimestamp();
+
+      const previousMessage = interaction.message;
+
+      const message = await interaction.editReply({
+        embeds: [embed],
+      });
+
+      if (previousMessage) {
+        try {
+          await previousMessage.delete();
+        } catch (deleteError) {
+          this.logger.debug(
+            `Could not delete previous message: ${deleteError.message}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error in deletePlaylist modal: ${error.message}`);
+      await interaction
+        .editReply({
+          content: `${ICONS.ERROR} Ошибка при удалении плейлиста: ${error.message}`,
+        })
+        .catch(() => {});
+    }
+  }
+
+  @Modal('update_playlist_name_modal_:playlistId')
+  private async updatePlaylistName(
+    @Context() [interaction]: ModalContext,
+    @ModalParam('playlistId') playlistId: string,
+  ) {
+    const newPlaylistName =
+      interaction.fields.getTextInputValue('playlist_name');
+
+    await interaction.deferReply({ flags: 64 });
+
+    try {
+      // Валидация названия плейлиста
+      if (!newPlaylistName || newPlaylistName.trim().length === 0) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Название плейлиста не может быть пустым`,
+        });
+      }
+
+      if (newPlaylistName.length > 100) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Название плейлиста слишком длинное (максимум 100 символов)`,
+        });
+      }
+
+      const playlist = await this.playlistService.getPlaylistById(playlistId);
+      if (!playlist) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Плейлист не найден`,
+        });
+      }
+
+      if (playlist.owner !== interaction.user.username) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Вы не можете редактировать этот плейлист`,
+        });
+      }
+
+      // Обновляем название
+      const updatedPlaylist = await this.playlistService.renamePlaylist(
+        playlistId,
+        newPlaylistName.trim(),
+      );
+
+      if (!updatedPlaylist) {
+        return await interaction.editReply({
+          content: `${ICONS.ERROR} Не удалось обновить название плейлиста`,
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00ff00)
+        .setTitle('Название плейлиста обновлено')
+        .setDescription(`Название плейлиста было успешно изменено`)
+        .addFields(
+          {
+            name: 'Старое название',
+            value: playlist.name,
+            inline: true,
+          },
+          {
+            name: 'Новое название',
+            value: updatedPlaylist.name,
+            inline: true,
+          },
+          {
+            name: 'ID плейлиста',
+            value: `\`${playlistId}\``,
+            inline: false,
+          },
+        )
+        .setTimestamp();
+
+      // Кнопка для перехода к плейлисту
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`playlist_${playlistId}`)
+          .setLabel(`${ICONS.PLAYLIST} Перейти к плейлисту`)
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`back`)
+          .setLabel(`${ICONS.BACK} Назад`)
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      const previousMessage = interaction.message;
+
+      const message = await interaction.editReply({
+        embeds: [embed],
+        components: [row],
+      });
+
+      // Удаляем предыдущее сообщение если есть
+      if (previousMessage) {
+        try {
+          await previousMessage.delete();
+        } catch (deleteError) {
+          this.logger.debug(
+            `Could not delete previous message: ${deleteError.message}`,
+          );
+        }
+      }
+
+      // Настраиваем коллектор на новом сообщении
+      this.playerPlaylistService.setupCollector(message);
+    } catch (error) {
+      this.logger.error(`Error in updatePlaylistName modal: ${error.message}`);
+      await interaction
+        .editReply({
+          content: `${ICONS.ERROR} Ошибка при обновлении названия плейлиста: ${error.message}`,
         })
         .catch(() => {});
     }
