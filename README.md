@@ -69,8 +69,8 @@ DISCORD_DEVELOPMENT_GUILD_ID=
 
 ### Discord tokens
 
-Все токены можно получить на сайте [Discord Developers](https://discord.com/developers/applications)
+ - Все токены можно получить на сайте [Discord Developers](https://discord.com/developers/applications)
 
 #### License
 
-MIT licensed
+- MIT licensed
