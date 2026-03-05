@@ -44,6 +44,17 @@ $ yarn run start:dev
 $ yarn run start:prod
 ```
 
+## Postgres
+```bash
+$ yarn prisma db push
+```
+
+## Docker
+
+```bash
+docker-compose up --build
+```
+
 ## ENVIROMENTS
 
 ```env
