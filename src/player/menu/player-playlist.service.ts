@@ -32,40 +32,56 @@ export class PlayerPlaylistService {
   public async getPlaylistButtons(interaction: ButtonInteraction) {
     try {
       const playlists = await this.playlistService.getPlaylists();
-      const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId('create')
-          .setLabel('Создать плейлист')
+          .setLabel(`${ICONS.ADD} Создать плейлист`)
           .setStyle(ButtonStyle.Success),
       );
+
       if (!playlists || playlists.length === 0) {
         const message = await interaction.followUp({
-          components: [row2],
+          components: [row],
           embeds: [],
         });
         return this.setupCollector(message);
       }
 
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      for (const playlist of playlists) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`playlist_${playlist.id}`)
-            .setLabel(`${ICONS.FAVORITE} ${playlist.name}`)
-            .setStyle(ButtonStyle.Primary),
-        );
-      }
-
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`playlist_mix`)
-          .setLabel(`${ICONS.DISK} mix`)
+          .setLabel(`${ICONS.DISK} Микс из всех треков`)
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`back`)
+          .setLabel(`${ICONS.BACK} Назад`)
           .setStyle(ButtonStyle.Secondary),
       );
 
+      const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+      let currentRow = new ActionRowBuilder<ButtonBuilder>();
+      let buttonCount = 0;
+
+      for (const playlist of playlists) {
+        const button = new ButtonBuilder()
+          .setCustomId(`playlist_${playlist.id}`)
+          .setLabel(`${ICONS.FAVORITE} ${playlist.name}`)
+          .setStyle(ButtonStyle.Primary);
+
+        currentRow.addComponents(button);
+        buttonCount++;
+
+        // Максимума в строке 5 кнопок
+        if (buttonCount === 5 || playlist === playlists[playlists.length - 1]) {
+          rows.push(currentRow);
+          currentRow = new ActionRowBuilder<ButtonBuilder>();
+          buttonCount = 0;
+        }
+      }
+
       const message = await interaction.followUp({
         content: '**Выберите плейлист**',
-        components: [row, row2],
+        components: [row, ...rows],
         embeds: [],
       });
 
@@ -106,7 +122,11 @@ export class PlayerPlaylistService {
   }
 
   private async handleButtonInteraction(interaction: ButtonInteraction) {
-    const [method, id] = interaction.customId.split('_');
+    const [method, id, __, pageStr] = interaction.customId.split('_');
+
+    if (method === 'back') {
+      return await interaction.message.delete();
+    }
 
     if (method === 'create') {
       return await this.showCreatePlaylistModal(interaction);
@@ -126,7 +146,6 @@ export class PlayerPlaylistService {
     }
 
     if (method === 'deletePlaylist') {
-      console.log(playlist);
       return this.showDeletePlaylistModal(interaction, playlist.id);
     }
 
@@ -170,6 +189,7 @@ export class PlayerPlaylistService {
         await this.showPlaylistMenu(
           interaction,
           playlist as PlaylistWithTracks,
+          parseInt(pageStr),
         );
       }
     } catch (error) {
@@ -204,8 +224,13 @@ export class PlayerPlaylistService {
       }
 
       if (messageToUpdate) {
-        const embed = this.createEmbed(updatedPlaylist);
-        const components = getPlaylistMenu(playlist.id);
+        const { embed, currentPage, totalPages } =
+          this.createEmbed(updatedPlaylist);
+        const components = getPlaylistMenu(
+          playlist.id,
+          currentPage,
+          totalPages,
+        );
 
         await messageToUpdate.edit({ embeds: [embed], components });
       }
@@ -217,9 +242,14 @@ export class PlayerPlaylistService {
   private async showPlaylistMenu(
     interaction: ButtonInteraction,
     playlist: PlaylistWithTracks,
+    pageStr: number,
   ) {
-    const embed = this.createEmbed(playlist);
-    const components = getPlaylistMenu(playlist.id);
+    const { embed, currentPage, totalPages } = this.createEmbed(
+      playlist,
+      pageStr,
+    );
+
+    const components = getPlaylistMenu(playlist.id, currentPage, totalPages);
     if (interaction.deferred) {
       await interaction.editReply({
         embeds: [embed],
@@ -233,8 +263,20 @@ export class PlayerPlaylistService {
     }
   }
 
-  private createEmbed(playlist: PlaylistWithTracks) {
-    const fields = playlist.tracks.map((track) => {
+  private createEmbed(playlist: PlaylistWithTracks, page: number = 1) {
+    const itemsPerPage = 12;
+    const totalPages = Math.ceil(playlist.tracks.length / itemsPerPage);
+
+    const currentPage = Math.min(Math.max(1, page), totalPages) || 1;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(
+      startIndex + itemsPerPage,
+      playlist.tracks.length,
+    );
+
+    const pageTracks = playlist.tracks.slice(startIndex, endIndex);
+
+    const fields = pageTracks.map((track) => {
       return {
         name: `${track.title}`,
         value: `ID: \`${track.id}\``,
@@ -253,14 +295,16 @@ export class PlayerPlaylistService {
     const embed = new EmbedBuilder()
       .setColor(0x00ff00)
       .setTitle(`🎧 Плейлист: ${playlist.name}`)
-      .setDescription('Список треков')
+      .setDescription(
+        `Список треков (страница ${currentPage} из ${totalPages || 1})`,
+      )
       .addFields(fields)
       .setFooter({
-        text: 'Для удаления трека скопируйте id',
+        text: `Для удаления трека скопируйте id`,
       })
       .setTimestamp();
 
-    return embed;
+    return { embed, currentPage, totalPages };
   }
 
   private async setPlaylist(

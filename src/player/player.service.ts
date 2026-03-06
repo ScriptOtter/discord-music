@@ -23,7 +23,6 @@ export class PlayerService {
   private menuUpdateCallback: (() => Promise<void>) | null = null;
   private stopped: boolean = false;
   constructor(
-    private readonly configService: ConfigService,
     private readonly youtubeService: YoutubeService,
     private readonly activityService: PlayerActivityService,
     private readonly stateService: PlayerStateService,

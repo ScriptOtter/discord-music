@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { YtDlp } from 'ytdlp-nodejs';
+import { PlaylistInfo, VideoInfo, YtDlp } from 'ytdlp-nodejs';
 import { PassThrough } from 'stream';
 
 @Injectable()
@@ -22,10 +22,18 @@ export class YoutubeService {
       throw new Error(`Failed to create stream from ${url}: ${error.message}`);
     }
   }
+  public async getVideoData(url: string): Promise<VideoInfo | PlaylistInfo> {
+    this.validateUrl(url);
+    const data = await this.youtubeService.getInfoAsync(url);
 
+    return data;
+  }
   public async getTitle(url: string) {
     this.validateUrl(url);
-    return (await this.youtubeService.getInfoAsync(url)).title;
+
+    const data = await this.youtubeService.getInfoAsync(url);
+
+    return data.title;
   }
   private validateUrl(url: string): void {
     if (!url) {

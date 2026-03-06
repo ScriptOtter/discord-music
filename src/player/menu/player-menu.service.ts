@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Context, SlashCommand, SlashCommandContext } from 'necord';
+import { SlashCommandContext } from 'necord';
 import { PlayerService } from '../player.service';
 import {
   ActionRowBuilder,
@@ -13,9 +13,10 @@ import {
   GuildMember,
 } from 'discord.js';
 import { PlayerState } from 'src/shared/types/player-state.types';
-import { PlayerStateService } from '../player-state.service';
+import { PlayerStateService, QueuedTrack } from '../player-state.service';
 import { PlayerPlaylistService } from './player-playlist.service';
 import { ICONS } from 'src/shared/utils/icons.enum';
+import { PlaylistType } from 'src/shared/types/playlist.types';
 
 @Injectable()
 export class PlayerMenuService {
@@ -78,6 +79,53 @@ export class PlayerMenuService {
     }
   }
 
+  private getEmbedTracks(
+    tracks: QueuedTrack[],
+    currentTrack: PlaylistType,
+  ): { name: string; value: string; inline: boolean }[] {
+    function getValue(track: QueuedTrack, currentTrack: PlaylistType): string {
+      let value = ``;
+
+      if (track.track.title.length > 40)
+        value = `${track.track.title.slice(0, 40)}...`;
+      else value = `${track.track.title}`;
+
+      if (track.track.id === currentTrack?.id) {
+        value = `${ICONS.FAVORITE} **${value}**`;
+      } else {
+        value = `**${ICONS.WHITE_STAR}** ${value}`;
+      }
+
+      return value;
+    }
+
+    if (!currentTrack) return [{ name: '', value: '', inline: true }];
+    let displayTracks: QueuedTrack[];
+
+    if (tracks.length > 15) {
+      const currentIndex = tracks.findIndex(
+        (track) => track.track.id === currentTrack?.id,
+      );
+
+      if (currentIndex >= 10) {
+        const startIndex = currentIndex - 10;
+        displayTracks = tracks.slice(startIndex, startIndex + 15);
+      } else {
+        displayTracks = tracks.slice(0, 15);
+      }
+    } else {
+      displayTracks = tracks;
+    }
+
+    return displayTracks.map((track) => {
+      return {
+        name: ``,
+        value: getValue(track, currentTrack),
+        inline: false,
+      };
+    });
+  }
+
   private createPlayerEmbed(): EmbedBuilder {
     const state = this.stateService.state;
     const currentTrack = this.stateService.getCurrentTrack();
@@ -91,58 +139,46 @@ export class PlayerMenuService {
       footerText = `${ICONS.LOADING} Осталось треков: ${remainingTracks} `;
     else if (remainingTracks === 1)
       footerText = `${ICONS.FAVORITE} Играет последний трек`;
-    else footerText = `Загрузите треки из плейлиста`;
+    else footerText = `Загрузите треки в плейлист`;
     const tracks = this.stateService.getPlaylist();
     const embed = new EmbedBuilder()
       .setColor(this.getStateColor(state))
-      .setTitle(`${ICONS.HEADPHONES} Afferists Player`)
+      .setTitle(`**${ICONS.HEADPHONES} Afferists Player**`)
       .setDescription(
         isJoined
-          ? `Плейлист: ${this.stateService.getPlaylistName()}`
-          : 'Добавьте бота в канал',
+          ? `Плейлист: **${this.stateService.getPlaylistName()}**`
+          : '**Добавьте бота в канал**',
       );
 
-    if (isJoined) {
-      embed
-        .addFields(
-          {
-            name:
-              state === 'Playing'
-                ? `${ICONS.DISK} Сейчас играет`
-                : `${ICONS.LOADING} Ожидает запуска`,
-            value: currentTrack?.title || 'Ничего не играет',
-            inline: false,
-          },
-          {
-            name: `🔄 Автоповтор: ${loopMod ? '**Включен**' : '**Выключен**'}`,
-            value: '',
-            inline: false,
-          },
-        )
+    embed
+      .addFields({
+        name:
+          state === 'Playing'
+            ? `${ICONS.DISK} Запущен`
+            : `${ICONS.LOADING} Ожидает запуска`,
+        value: '',
+        inline: false,
+      })
 
-        .setFooter({
-          text: footerText,
-        })
-        .setTimestamp();
+      .setFooter({
+        text: footerText,
+      })
+      .setTimestamp();
 
-      if (tracks) {
-        embed.addFields([
-          { name: 'Очередь треков:', value: '', inline: false },
-          ...tracks.map((track) => {
-            return {
-              name: ``,
-              value: `${track.track.title === currentTrack?.title ? ICONS.FAVORITE : '•'} ${track.track.title.slice(0, 40)}... `,
-              inline: false,
-            };
-          }),
-        ]);
-      }
-      if (currentTrack?.url) {
-        embed.setURL(currentTrack.url);
-      }
-      return embed;
+    if (tracks) {
+      embed.addFields([
+        { name: 'Очередь треков:', value: '', inline: false },
+        ...this.getEmbedTracks(tracks, currentTrack!),
+        {
+          name: `🔄 Автоповтор: ${loopMod ? `**${ICONS.SUCCESS} Включен**` : 'Выключен'}`,
+          value: '',
+          inline: false,
+        },
+      ]);
     }
-
+    if (currentTrack?.url) {
+      embed.setURL(currentTrack.url);
+    }
     return embed;
   }
 
@@ -202,19 +238,19 @@ export class PlayerMenuService {
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_loop')
-        .setLabel(`${ICONS.LOOP} Loop`)
+        .setLabel(`${ICONS.LOOP} Автоповтор`)
         .setStyle(loopMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(
           shuffleMod || !isJoined || isBuffering || !hasCurrentTrack,
         ),
       new ButtonBuilder()
         .setCustomId('player_shuffle')
-        .setLabel(`${ICONS.SHUFFLE} Shuffle`)
+        .setLabel(`${ICONS.SHUFFLE} Перемешать`)
         .setStyle(shuffleMod ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setDisabled(loopMod || !isJoined || isBuffering || !hasCurrentTrack),
       new ButtonBuilder()
         .setCustomId('player_clear')
-        .setLabel(`${ICONS.DELETE} Clear`)
+        .setLabel(`${ICONS.DELETE} Отчистить`)
         .setStyle(ButtonStyle.Danger)
         .setDisabled(
           this.stateService.getRemainingTracks() === 0 ||
@@ -235,16 +271,14 @@ export class PlayerMenuService {
         .setDisabled(state === 'Playing'),
       new ButtonBuilder()
         .setCustomId('player_playlist')
-        .setLabel(`${ICONS.HEADPHONES} Плейлист`)
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(state === 'Playing'),
+        .setLabel(`${ICONS.HEADPHONES} Список Плейлистов`)
+        .setStyle(ButtonStyle.Primary),
     );
     const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('player_playlist')
-        .setLabel(`${ICONS.HEADPHONES} Плейлист`)
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(state === 'Playing'),
+        .setLabel(`${ICONS.HEADPHONES} Список Плейлистов`)
+        .setStyle(ButtonStyle.Primary),
     );
     return isJoined ? [row1, row2, row3] : [row, row1, row2, row4];
   };
@@ -598,13 +632,6 @@ export class PlayerMenuService {
 
   private async handleRefresh(interaction: ButtonInteraction) {
     await this.updateMenu(interaction);
-
-    await interaction
-      .followUp({
-        content: '🔄 Меню обновлено',
-        flags: 64,
-      })
-      .catch(() => {});
   }
 
   private async updateMenu(interaction: ButtonInteraction) {

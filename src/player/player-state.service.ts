@@ -31,7 +31,7 @@ export class PlayerStateService {
   private logger = new Logger(PlayerStateService.name);
 
   public currentTrack: PlaylistType | null = null;
-  public playlistName: string = 'Mix';
+  public playlistName: string = 'Микс';
   public state: PlayerState = 'Idle';
   public isPlaying: boolean = false;
   public loop: boolean = false;

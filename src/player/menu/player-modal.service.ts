@@ -11,6 +11,7 @@ import {
 import { PlaylistWithTracks } from 'src/shared/types/playlist.types';
 import { PlayerPlaylistService } from './player-playlist.service';
 import { ICONS } from 'src/shared/utils/icons.enum';
+import { YoutubeService } from 'src/modules/youtube/youtube.service';
 
 @Injectable()
 export class PlayerModalService {
@@ -18,6 +19,7 @@ export class PlayerModalService {
   constructor(
     private readonly playlistService: PlaylistService,
     private readonly playerPlaylistService: PlayerPlaylistService,
+    private readonly youtubeService: YoutubeService,
   ) {}
 
   @Modal('create_playlist_modal')
@@ -54,7 +56,7 @@ export class PlayerModalService {
       }
 
       await interaction.editReply({
-        content: `${ICONS.LOADING} Создаю плейлист "${playlistName}" и добавляю треки... 0/${trackUrls.length}`,
+        content: `${ICONS.LOADING} Создаю плейлист "${playlistName}" и добавляю треки...`,
       });
 
       // Создаем плейлист
@@ -79,24 +81,49 @@ export class PlayerModalService {
         const url = trackUrls[i];
 
         try {
-          const track = await this.playlistService.addTrackToPlaylist(
-            playlist.id,
-            url,
-          );
+          const data = await this.youtubeService.getVideoData(url);
+          if (data._type === 'playlist') {
+            const videos: { url: string; title: string }[] = data.entries.map(
+              (video) => {
+                return { url: video.url, title: video.title };
+              },
+            );
+            for (const video of videos) {
+              const track = await this.playlistService.addTrackToPlaylist(
+                playlist.id,
+                video.url,
+                video.title,
+              );
+              if (track) {
+                results.success.push(track);
+              } else {
+                results.failed.push(url);
+              }
+            }
+          } else if (data._type === 'video') {
+            const track = await this.playlistService.addTrackToPlaylist(
+              playlist.id,
+              url,
+              data.title,
+            );
 
-          if (track) {
-            results.success.push(track);
-          } else {
-            results.failed.push(url);
+            if (track) {
+              results.success.push(track);
+            } else {
+              results.failed.push(url);
+            }
           }
         } catch (error) {
           results.failed.push(url);
           this.logger.debug(`Failed to add track: ${url}`);
         }
 
-        if ((i + 1) % 3 === 0 || i === trackUrls.length - 1) {
+        if (
+          (i + 1) % 3 === 0 ||
+          i === results.success.length + results.failed.length - 1
+        ) {
           await interaction.editReply({
-            content: `${ICONS.LOADING} Создаю плейлист "${playlistName}" и добавляю треки... ${i + 1}/${trackUrls.length}`,
+            content: `${ICONS.LOADING} Создаю плейлист "${playlistName}" и добавляю треки... `,
           });
         }
       }
@@ -118,7 +145,7 @@ export class PlayerModalService {
           },
           {
             name: `${ICONS.PLAYLIST} Всего треков`,
-            value: trackUrls.length.toString(),
+            value: (results.success.length + results.failed.length).toString(),
             inline: true,
           },
         )
@@ -220,7 +247,7 @@ export class PlayerModalService {
       }
 
       await interaction.editReply({
-        content: `${ICONS.LOADING} Добавляю треки... 0/${trackUrls.length}`,
+        content: `${ICONS.LOADING} Добавляю треки...`,
       });
 
       const results = {
@@ -232,24 +259,49 @@ export class PlayerModalService {
         const url = trackUrls[i];
 
         try {
-          const track = await this.playlistService.addTrackToPlaylist(
-            playlistId,
-            url,
-          );
+          const data = await this.youtubeService.getVideoData(url);
+          if (data._type === 'playlist') {
+            const videos: { url: string; title: string }[] = data.entries.map(
+              (video) => {
+                return { url: video.url, title: video.title };
+              },
+            );
+            for (const video of videos) {
+              const track = await this.playlistService.addTrackToPlaylist(
+                playlist.id,
+                video.url,
+                video.title,
+              );
+              if (track) {
+                results.success.push(track);
+              } else {
+                results.failed.push(url);
+              }
+            }
+          } else if (data._type === 'video') {
+            const track = await this.playlistService.addTrackToPlaylist(
+              playlist.id,
+              url,
+              data.title,
+            );
 
-          if (track) {
-            results.success.push(track);
-          } else {
-            results.failed.push(url);
+            if (track) {
+              results.success.push(track);
+            } else {
+              results.failed.push(url);
+            }
           }
         } catch (error) {
           results.failed.push(url);
           this.logger.debug(`Failed to add track: ${url}`);
         }
 
-        if ((i + 1) % 3 === 0 || i === trackUrls.length - 1) {
+        if (
+          (i + 1) % 3 === 0 ||
+          i === results.success.length + results.failed.length - 1
+        ) {
           await interaction.editReply({
-            content: `${ICONS.LOADING} Добавляю треки... ${i + 1}/${trackUrls.length}`,
+            content: `${ICONS.LOADING} Добавляю треки...`,
           });
         }
       }
@@ -270,7 +322,7 @@ export class PlayerModalService {
           },
           {
             name: `${ICONS.PLAYLIST} Всего`,
-            value: trackUrls.length.toString(),
+            value: (results.success.length + results.failed.length).toString(),
             inline: true,
           },
         )

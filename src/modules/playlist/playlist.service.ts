@@ -7,6 +7,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { YoutubeService } from '../youtube/youtube.service';
 import { PlaylistWithTracks } from 'src/shared/types/playlist.types';
+import { ICONS } from 'src/shared/utils/icons.enum';
 
 @Injectable()
 export class PlaylistService {
@@ -48,7 +49,7 @@ export class PlaylistService {
     const tracks = await this.prismaService.track.findMany({});
     const playlist = {
       id: 'mix',
-      name: 'mix',
+      name: `${ICONS.DISK} Микс`,
       tracks,
       owner: 'mix',
       createdAt: new Date(),
@@ -74,9 +75,8 @@ export class PlaylistService {
   public async addTrackToPlaylist(
     playlistId: string,
     url: string,
+    title: string,
   ): Promise<Track | null> {
-    const title = await this.youtubeService.getTitle(url);
-    if (!title) return null;
     const data: TrackCreateManyInput = {
       playlistId,
       url,
