@@ -264,7 +264,7 @@ export class PlayerPlaylistService {
   }
 
   private createEmbed(playlist: PlaylistWithTracks, page: number = 1) {
-    const itemsPerPage = 12;
+    const itemsPerPage = 8;
     const totalPages = Math.ceil(playlist.tracks.length / itemsPerPage);
 
     const currentPage = Math.min(Math.max(1, page), totalPages) || 1;
@@ -279,7 +279,7 @@ export class PlayerPlaylistService {
     const fields = pageTracks.map((track) => {
       return {
         name: `${track.title}`,
-        value: `ID: \`${track.id}\``,
+        value: ['```', track.id, '```'].join('\n'),
         inline: false,
       };
     });
@@ -296,11 +296,11 @@ export class PlayerPlaylistService {
       .setColor(0x00ff00)
       .setTitle(`🎧 Плейлист: ${playlist.name}`)
       .setDescription(
-        `Список треков (страница ${currentPage} из ${totalPages || 1})`,
+        `В плейлисте ${playlist.tracks.length} песен. (страница ${currentPage} из ${totalPages || 1})`,
       )
       .addFields(fields)
       .setFooter({
-        text: `Для удаления трека скопируйте id`,
+        text: `ID песни выделен черным`,
       })
       .setTimestamp();
 
