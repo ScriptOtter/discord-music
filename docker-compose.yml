@@ -23,10 +23,10 @@ services:
     container_name: discord-music-release
     restart: always
     environment:
-      - NODE_ENV=${NODE_ENV_RELEASE}
-      - DISCORD_TOKEN=${DISCORD_TOKEN_RELEASE}
-      - DISCORD_DEVELOPMENT_GUILD_ID=${DISCORD_DEVELOPMENT_GUILD_ID_RELEASE}
-      - DATABASE_URL=${DATABASE_URL_RELEASE}
+      - NODE_ENV=${NODE_ENV}
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_DEVELOPMENT_GUILD_ID=${DISCORD_DEVELOPMENT_GUILD_ID}
+      - DATABASE_URL=${DATABASE_URL}
     ports:
       - '4200:4200'
     volumes:
