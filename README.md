@@ -23,7 +23,7 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Дискорд бот для транслирующий музыку с ютуб в дискорд канал.
 
 ## Project setup
 
@@ -70,6 +70,12 @@ DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${
 DISCORD_TOKEN=
 DISCORD_DEVELOPMENT_GUILD_ID=
 ```
+
+## Prewiev
+<img width="578" height="831" alt="1" src="https://github.com/user-attachments/assets/dace8a9a-1c71-471d-9235-ddae2cbdbe61" />
+<img width="595" height="627" alt="2" src="https://github.com/user-attachments/assets/8c9ceb74-c33e-435f-bfc7-caabb34c6f87" />
+<img width="503" height="168" alt="3" src="https://github.com/user-attachments/assets/1838286a-a6bd-4b2e-89ac-f3bacb1dfcdd" />
+<img width="540" height="816" alt="4" src="https://github.com/user-attachments/assets/abd79a11-cd97-4c5c-9a16-5e62c00635fa" />
 
 ### Youtube Cookies
 #### Для стабильной работы приложения необходимо 
