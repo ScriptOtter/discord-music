@@ -28,6 +28,7 @@
 ## Project setup
 
 ```bash
+$ git clone https://github.com/ScriptOtter/discord-music
 $ yarn install
 ```
 
@@ -52,7 +53,7 @@ $ yarn prisma db push
 ## Docker
 
 ```bash
-docker-compose up --build
+$ docker-compose up --build
 ```
 
 ## ENVIROMENTS
